@@ -16,8 +16,12 @@ Para cada personagem, contém um hyperlink que leva para a página do personagem
 - Execute o script
 
 ```bash
-git clone
-cd harry-potter-characters
-pip install -r requirements.txt
+git clone https://github.com/levyvix/personagens_harry_potter.git
+cd personagens_harry_potter
+python -m pip install -r requirements.txt
 python get_data.py
 ```
+
+Vai ser criado um arquivo chamado `personagens.csv` com os dados obtidos.
+
+Lembre-se que os dados ainda precisam ser limpos e tratados para serem utilizados em um projeto.
