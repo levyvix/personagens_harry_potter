@@ -13,7 +13,19 @@ from tqdm.notebook import tqdm
 # In[2]:
 
 
+url_personagem_base = "https://harrypotter.fandom.com"
+
+
 def get_character_info(url):
+    """Visita a página de um personagem e retorna as informações da cartão de informações
+
+    Args:
+        url (str): o link do site do personagem
+
+    Returns:
+        pandas.DataFrame: linha com as informações do personagem
+    """
+
     response = requests.get(url)
 
     soup = BeautifulSoup(response.text, "html.parser")
@@ -34,35 +46,37 @@ def get_character_info(url):
     # include name
     result = result.assign(Nome=nome)
 
+    # name first
+    result = result[["Nome"] + [el.text for el in columns]]
+
     return result
 
 
-# In[5]:
+def have_banner(response):
+    """Vê se o personagem tem um banner de nascimento na página
 
+    Args:
+        response (str): link do personagem
 
-url_personagem_base = "https://harrypotter.fandom.com"
-
-
-def have_banner(href):
-    try:
-        response = requests.get(url_personagem_base + href)
-    except:
-        return False
+    Returns:
+        bool: True se o personagem tem um banner de nascimento
+    """
 
     soup = BeautifulSoup(response.text, "html.parser")
 
     columns = soup.select("h3.pi-data-label.pi-secondary-font")
-    if "Nascimento" in [c.text for c in columns]:
-        return True
-    else:
-        return False
+    return "Nascimento" in [c.text for c in columns]
 
 
-def have_informacoes_bibliograficas(href):
-    try:
-        response = requests.get(url_personagem_base + href)
-    except:
-        return False
+def have_informacoes_bibliograficas(response):
+    """Ver se o personagem tem a caixa de informações biográficas
+
+    Args:
+        href (str): link do personagem
+
+    Returns:
+        bool: True se o personagem tem a caixa de informações biográficas
+    """
 
     soup = BeautifulSoup(response.text, "html.parser")
 
@@ -70,36 +84,43 @@ def have_informacoes_bibliograficas(href):
         "h2.pi-item.pi-header.pi-secondary-font.pi-item-spacing.pi-secondary-background > center"
     )
 
-    if "Informações biográficas" in [c.text for c in columns]:
-        return True
-    else:
-        return False
+    return "Informações biográficas" in [c.text for c in columns]
 
 
 def get_book_info(url):
+    """Visita a página de um livro e retorna as informações da cartão de informações para cada link <a> que estiver na página,
+        dentro de um parágrafo <p>
+
+    Args:
+        url (str): link da pagina do livro
+
+    Returns:
+        list[str]: lista com os links dos personagens que tem um banner de nascimento ou informações biográficas
+    """
     response = requests.get(url)
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # get all hrefs inside paragraphs <p> that have a <a> inside
-
     links_personagens = []
 
-    # for p in tqdm(soup.select('p')):
-    for a in tqdm(soup.select("div.mw-parser-output > p > a")):
-        # print(a.text, a['href'])
-        # see if the link is a character
+    for a in tqdm(
+        soup.select("div.mw-parser-output > p > a"),
+        total=len(soup.select("div.mw-parser-output > p > a")),
+    ):
+        try:
+            response = requests.get(url_personagem_base + a["href"])
+        except:
+            continue
         if (
-            have_banner(a["href"])
-            or have_informacoes_bibliograficas(a["href"])
+            have_banner(response)
+            or have_informacoes_bibliograficas(response)
             and (url_personagem_base + a["href"]) not in links_personagens
         ):
-            # print('achou', a['href'])
             links_personagens.append(a["href"])
 
     return list(set([url_personagem_base + link for link in links_personagens]))
 
 
-# In[21]:
+# In[ ]:
 
 
 url_livro1 = (
@@ -137,25 +158,27 @@ for livro in tqdm(livros):
     href_personagens += get_book_info(livro)
 
 
+# # Checkpoint
+
 # In[ ]:
 
 
+# write to file
 with open("href_personagens.txt", "w") as f:
     for href in href_personagens:
         f.write(href + "\n")
 
 
-# In[8]:
+# In[ ]:
 
 
 # read
-
 with open("href_personagens.txt", "r") as f:
     # remove \n
     href_personagens = [line[:-1] for line in f.readlines()]
 
 
-# In[10]:
+# In[ ]:
 
 
 dataframes_personagem = []
@@ -163,19 +186,20 @@ for link_personagem in href_personagens:
     try:
         dataframes_personagem.append(get_character_info(link_personagem))
 
-    except:
-        print("error")
+    except Exception as e:
+        print("error", e, link_personagem)
         continue
 
 
 df_personagens = pd.concat(dataframes_personagem)
 
 
-# In[14]:
+# In[ ]:
 
 
 (
     df_personagens.drop_duplicates(subset="Nome")
     # drop Joanne Rowling
     .query('Nome != "Joanne Rowling"')
-).to_csv("personagens.csv", index=False)
+    .to_csv("personagens.csv", index=False)
+)
