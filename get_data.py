@@ -49,6 +49,11 @@ def get_character_info(url):
     # name first
     result = result[["Nome"] + [el.text for el in columns]]
 
+    # clean all columns, removing brackets and numbers like [4]
+    for col in result.columns:
+        result[col] = result[col].str.replace(r"\[.*\]", "")
+        result[col] = result[col].str.strip()
+
     return result
 
 
@@ -200,6 +205,5 @@ df_personagens = pd.concat(dataframes_personagem)
 (
     df_personagens.drop_duplicates(subset="Nome")
     # drop Joanne Rowling
-    .query('Nome != "Joanne Rowling"')
-    .to_csv("personagens.csv", index=False)
+    .query('Nome != "Joanne Rowling"').to_csv("personagens.csv", index=False)
 )
