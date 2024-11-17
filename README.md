@@ -27,16 +27,14 @@ Vai ser criado um arquivo chamado `personagens.csv` com os dados obtidos.
 
 Lembre-se que os dados ainda precisam ser limpos e tratados para serem utilizados em um projeto.
 
-### Comparação de velocidade
+### Versão com multiprocessamento
 
-Processador: Ryzen 5 5500
+Para obter os dados mais rapidamente, foi criado um script que utiliza multiprocessamento para fazer as requisições de forma paralela.
 
-Memória: 16GB
+> ⚠️ **CUIDADO:** Este script utiliza todos os núcleos do seu processador. Se você tiver um processador com muitos núcleos, pode ser que o site bloqueie o seu IP por fazer muitas requisições em um curto espaço de tempo.
 
-- NORMAL: 5 minutes 32 seconds
+Para executar o script com multiprocessamento, execute o seguinte comando:
 
-- MULTITHREAD:  3 minutes 21 seconds
-
-- MULTIPROCESS: 1 minute 13 seconds
-
-- ASYNCIO: 3 minutes
+```bash
+python get_data_multiprocessing.py
+```
