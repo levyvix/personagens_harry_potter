@@ -1,7 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
 
 
 import pandas as pd
@@ -9,8 +5,6 @@ import requests
 from bs4 import BeautifulSoup
 from tqdm.notebook import tqdm
 
-
-# In[2]:
 
 
 url_personagem_base = "https://harrypotter.fandom.com"
@@ -125,8 +119,6 @@ def get_book_info(url):
     return list(set([url_personagem_base + link for link in links_personagens]))
 
 
-# In[ ]:
-
 
 url_livro1 = (
     "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_Pedra_Filosofal"
@@ -163,9 +155,6 @@ for livro in tqdm(livros):
     href_personagens += get_book_info(livro)
 
 
-# # Checkpoint
-
-# In[ ]:
 
 
 # write to file
@@ -174,7 +163,6 @@ with open("href_personagens.txt", "w") as f:
         f.write(href + "\n")
 
 
-# In[ ]:
 
 
 # read
@@ -183,7 +171,6 @@ with open("href_personagens.txt", "r") as f:
     href_personagens = [line[:-1] for line in f.readlines()]
 
 
-# In[ ]:
 
 
 dataframes_personagem = []
@@ -198,8 +185,6 @@ for link_personagem in href_personagens:
 
 df_personagens = pd.concat(dataframes_personagem)
 
-
-# In[ ]:
 
 
 (
