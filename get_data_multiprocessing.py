@@ -50,7 +50,6 @@ class WikiCaller:
             pandas.DataFrame: linha com as informações do personagem
         """
 
-        # TODO: porque tem url que nao esta no cache?
         response = self.cache.get(url, self.session.get(url))
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -102,15 +101,6 @@ class WikiCaller:
 
         Returns:
             bool: True se o personagem tem a caixa de informações biográficas
-
-
-        Example:
-
-        >>> wiki = WikiCaller()
-        >>> url = "https://harrypotter.fandom.com/pt-br/wiki/Albus_Dumbledore"
-        >>> response = wiki.session.get(url)
-        >>> wiki.have_informacoes_bibliograficas(response)
-        True
         """
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -220,9 +210,6 @@ class WikiCaller:
 
 
 if __name__ == "__main__":
-    import doctest
-
-    doctest.testmod()
 
     now = pend.now()
 
