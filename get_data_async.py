@@ -1,7 +1,7 @@
 import asyncio
 import sys
 import unicodedata
-from itertools import chain, filterfalse
+from itertools import chain
 from typing import Optional
 from urllib.parse import unquote
 
@@ -21,8 +21,7 @@ logger.add(
 )
 
 class WikiCaller:
-    """Class to fetch Harry Potter characters from the Harry Potter Wiki.
-    """
+    """Class to fetch Harry Potter characters from the Harry Potter Wiki."""
     def __init__(self):
         self.url_personagem_base = "https://harrypotter.fandom.com"
         self.url_livros = [
@@ -54,14 +53,13 @@ class WikiCaller:
         """Fetch character links from a book page."""
         html = await self.fetch(session, url)
         soup = HTMLParser(html)
-        return list(
-            {
+        return {
                 self.url_personagem_base + a.attributes["href"]
                 if a.attributes["href"].startswith("/")
                 else a.attributes["href"]
                 for a in soup.css("div.mw-parser-output > p > a")
             }
-        )
+        
 
     async def verify_href(
         self, session: aiohttp.ClientSession, href: str
@@ -91,6 +89,7 @@ class WikiCaller:
         }
 
     def remove_accents(self, text):
+        """Get the text without accents. ç -> c, á -> a, etc."""
         return "".join(
             char
             for char in unicodedata.normalize("NFD", text)
@@ -100,7 +99,7 @@ class WikiCaller:
     async def get_character_info(
         self, session: aiohttp.ClientSession, url: str
     ) -> dict[str, str]:
-        """Fetch character info."""
+        """Fetch character information from a character page."""
 
         if self.cache.get(url):
             html = self.cache[url]
@@ -135,16 +134,18 @@ class WikiCaller:
 
     async def get_data(self):
         """Collect character links."""
+        logger.info("Fetching character links...")
         async with aiohttp.ClientSession() as session:
-            book_links = await asyncio.gather(
-                *[self.get_book_info(session, url) for url in self.url_livros]
+            book_links = await async_tqdm.gather(
+                *[self.get_book_info(session, url) for url in self.url_livros],
+                desc="Fetching links from books...",
             )
             character_links = chain.from_iterable(book_links)
 
             logger.info("Verifying character links...")
             verified = await async_tqdm.gather(
                 *[self.verify_href(session, href) for href in character_links],
-                desc="Verifying characters",
+                desc="Verifying characters links...",
             )
             self.verified_characters = dict.fromkeys(list(filter(None, verified)))
 
@@ -156,7 +157,7 @@ class WikiCaller:
                     self.get_character_info(session, url)
                     for url in self.verified_characters
                 ],
-                desc="Fetching character data",
+                desc="Fetching character data...",
             )
             
             # remove duplicate names
@@ -175,11 +176,12 @@ class WikiCaller:
             destination="duckdb",
         )
 
-        pipeline.run(
+        load_info = pipeline.run(
             data=self.list_of_dicts,
             table_name="personagens",
             write_disposition="replace",
         )
+        logger.info(load_info)
 
     def save_to_csv(self):
         """Save the dataframe to a csv file."""
@@ -195,7 +197,7 @@ async def main():
     wiki.save_to_csv()
 
     logger.info(
-        f"Data collected and saved in {(pend.now() - now).in_words(locale='pt_br')}"
+        f"Data collected and saved in {(pend.now() - now).in_words(locale='en_us')}"
     )
 
 

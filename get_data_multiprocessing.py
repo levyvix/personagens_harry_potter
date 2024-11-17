@@ -10,9 +10,7 @@ import pendulum as pend
 import requests
 from loguru import logger
 from pathos.multiprocessing import ProcessingPool as Pool
-from selectolax.lexbor import (
-    LexborHTMLParser as HTMLParser,  # faster than BeautifulSoup
-)
+from selectolax.lexbor import LexborHTMLParser as HTMLParser
 from tqdm import tqdm
 
 pend.set_locale("en_us")
