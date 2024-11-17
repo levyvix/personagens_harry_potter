@@ -7,6 +7,9 @@ import sys
 import pendulum as pend
 from urllib.parse import unquote
 from pathos.multiprocessing import ProcessingPool as Pool
+from typing import Optional
+import numpy as np
+from itertools import chain, filterfalse
 
 pend.set_locale("en_us")
 
@@ -20,7 +23,6 @@ logger.add(
 
 
 class WikiCaller:
-
     def __init__(self):
         self.url_personagem_base = "https://harrypotter.fandom.com"
         self.url_livros = [
@@ -37,19 +39,20 @@ class WikiCaller:
         self.df_personagens = pd.DataFrame()
         self.cache = {}
         self.verified_characters = []
+        self.session = requests.Session()
 
     def get_character_info(self, url: str) -> pd.DataFrame:
         """Visita a página de um personagem e retorna as informações da cartão de informações
 
         Args:
-                url (str): o link do site do personagem
+            url (str): o link do site do personagem
 
         Returns:
-                pandas.DataFrame: linha com as informações do personagem
+            pandas.DataFrame: linha com as informações do personagem
         """
-        
-        #TODO: porque tem url que nao esta no cache?
-        response = self.cache.get(url, requests.get(url)) 
+
+        # TODO: porque tem url que nao esta no cache?
+        response = self.cache.get(url, self.session.get(url))
 
         soup = BeautifulSoup(response.text, "html.parser")
 
@@ -73,9 +76,7 @@ class WikiCaller:
         result = result[["Nome"] + [el.text for el in columns]]
 
         # clean all columns, removing brackets and numbers like [4]
-        for col in result.columns:
-            result[col] = result[col].str.replace(r"\[.*\]", "")
-            result[col] = result[col].str.strip()
+        result.columns = result.columns.str.replace(r"\[.*\]", "").str.strip()
 
         return result
 
@@ -83,10 +84,10 @@ class WikiCaller:
         """Vê se o personagem tem um banner de nascimento na página
 
         Args:
-                response (str): link do personagem
+            response (str): link do personagem
 
         Returns:
-                bool: True se o personagem tem um banner de nascimento
+            bool: True se o personagem tem um banner de nascimento
         """
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -94,14 +95,23 @@ class WikiCaller:
         columns = soup.select("h3.pi-data-label.pi-secondary-font")
         return "Nascimento" in [c.text for c in columns]
 
-    def have_informacoes_bibliograficas(self, response):
+    def have_informacoes_bibliograficas(self, response: requests.Response) -> bool:
         """Ver se o personagem tem a caixa de informações biográficas
 
         Args:
-                href (str): link do personagem
+            response (requests.Response): link do personagem
 
         Returns:
-                bool: True se o personagem tem a caixa de informações biográficas
+            bool: True se o personagem tem a caixa de informações biográficas
+
+
+        Example:
+
+        >>> wiki = WikiCaller()
+        >>> url = "https://harrypotter.fandom.com/pt-br/wiki/Albus_Dumbledore"
+        >>> response = wiki.session.get(url)
+        >>> wiki.have_informacoes_bibliograficas(response)
+        True
         """
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -122,7 +132,7 @@ class WikiCaller:
         Returns:
                 list[str]: lista com os links dos personagens que tem um banner de nascimento ou informações bibliográficas
         """
-        response = requests.get(url)
+        response = self.session.get(url)
         soup = BeautifulSoup(response.text, "html.parser")
 
         links_personagens = []
@@ -142,8 +152,18 @@ class WikiCaller:
             )
         )
 
-    def verify_href(self, href) -> None:
-        response = requests.get(href)
+    def verify_href(self, href: str) -> Optional[str]:
+        """
+        Verifica um `href` informado, fazendo uma requisição GET e armazenando o resultado na cache.
+        Se o personagem tem um banner de nascimento ou informações bibliográficas, o `href` é retornado
+
+        Args:
+            href (str): The URL to verify.
+
+        Returns:
+            Optional[str]: The `href` if the character has a banner or bibliographic info, otherwise `None`.
+        """
+        response = self.cache.get(href, self.session.get(href))
 
         self.cache[href] = response
 
@@ -156,39 +176,31 @@ class WikiCaller:
         """
 
         logger.info("Getting book info...")
+
         with Pool() as pool:
             self.href_personagens = pool.map(self.get_book_info, self.url_livros)
 
-        for book, book_chars in enumerate(self.href_personagens):
-            with Pool() as pool:
-                logger.info(
-                    f"Verifying {len(book_chars)} characters from {unquote(self.url_livros[book].split('/')[-1])}"
-                )
-                self.verified_characters.extend(pool.map(self.verify_href, book_chars))
+            logger.info("Flattening all the hrefs from all books...")
 
-        self.verified_characters = [
-            char for char in self.verified_characters if char is not None
-        ]
+            self.href_personagens = chain.from_iterable(self.href_personagens)
+            self.href_personagens = dict.fromkeys(self.href_personagens)
 
-    def save_href(self) -> None:
-        """
-        Salva os links dos personagens em um arquivo txt, um por linha
-        """
-        with open("href_personagens.txt", "w") as f:
-            for href in self.verified_characters:
-                if href is not None:
-                    f.write(href + "\n")
+            logger.info("Verifying hrefs...")
+
+            self.verified_characters = pool.map(self.verify_href, self.href_personagens)
+
+            logger.success("Verified all characters")
+
+        self.verified_characters = list(
+            filterfalse(lambda x: x is None, self.verified_characters)
+        )
 
     def append_dataframes(self) -> None:
         """
         Pega as informações de cada personagem e salva em um DataFrame
         """
 
-        logger.info(
-            "Getting character info for {} characters...".format(
-                len(self.verified_characters)
-            )
-        )
+        logger.info("Getting character info for all verified characters...")
         with Pool() as pool:
             self.dataframes_personagem = pool.map(
                 self.get_character_info, self.verified_characters
@@ -203,17 +215,20 @@ class WikiCaller:
         (
             self.df_personagens.drop_duplicates(subset="Nome")
             # drop Joanne Rowling
-            .query('Nome != "Joanne Rowling"').to_csv("personagens.csv", index=False)
+            .query('Nome != "Joanne Rowling"')
+            .to_csv("personagens.csv", index=False)
         )
 
 
 if __name__ == "__main__":
+    import doctest
+
+    doctest.testmod()
 
     now = pend.now()
 
     wiki = WikiCaller()
     wiki.get_data()
-    wiki.save_href()
     wiki.append_dataframes()
     wiki.save_dataframe()
 
