@@ -1,6 +1,6 @@
 # Personagens de Harry Potter
 
-Web Scraping de personagens da série harry potter
+Web Scraping de personagens da série Harry Potter.
 
 ## Como foi feito?
 
@@ -11,6 +11,7 @@ Foi criado um script que faz a requisição para cada página dos 7 livros. Cada
 Para cada personagem, contém um hyperlink que leva para a página do personagem, onde contém mais informações sobre ele.
 
 ## Como executar?
+
 - Clone o repositório
 - Instale as dependências
 - Execute o script
@@ -25,3 +26,17 @@ python get_data.py
 Vai ser criado um arquivo chamado `personagens.csv` com os dados obtidos.
 
 Lembre-se que os dados ainda precisam ser limpos e tratados para serem utilizados em um projeto.
+
+### Comparação de velocidade
+
+Processador: Ryzen 5 5500
+
+Memória: 16GB
+
+- NORMAL: 5 minutes 32 seconds
+
+- MULTITHREAD:  3 minutes 21 seconds
+
+- MULTIPROCESS: 1 minute 13 seconds
+
+- ASYNCIO: 3 minutes

@@ -5,6 +5,8 @@ from tqdm import tqdm
 from loguru import logger
 import sys
 import pendulum as pend
+from urllib.parse import unquote
+from pathos.multiprocessing import ProcessingPool as Pool
 
 pend.set_locale("en_us")
 
@@ -33,18 +35,20 @@ class WikiCaller:
         self.href_personagens = []
         self.dataframes_personagem = []
         self.df_personagens = pd.DataFrame()
+        self.cache = {}
+        self.verified_characters = []
 
     def get_character_info(self, url: str) -> pd.DataFrame:
         """Visita a página de um personagem e retorna as informações da cartão de informações
 
         Args:
-            url (str): o link do site do personagem
+                url (str): o link do site do personagem
 
         Returns:
-            pandas.DataFrame: linha com as informações do personagem
+                pandas.DataFrame: linha com as informações do personagem
         """
-
-        response = requests.get(url)
+        
+        response = self.cache.get(url, requests.get(url))
 
         soup = BeautifulSoup(response.text, "html.parser")
 
@@ -78,10 +82,10 @@ class WikiCaller:
         """Vê se o personagem tem um banner de nascimento na página
 
         Args:
-            response (str): link do personagem
+                response (str): link do personagem
 
         Returns:
-            bool: True se o personagem tem um banner de nascimento
+                bool: True se o personagem tem um banner de nascimento
         """
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -93,10 +97,10 @@ class WikiCaller:
         """Ver se o personagem tem a caixa de informações biográficas
 
         Args:
-            href (str): link do personagem
+                href (str): link do personagem
 
         Returns:
-            bool: True se o personagem tem a caixa de informações biográficas
+                bool: True se o personagem tem a caixa de informações biográficas
         """
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -109,13 +113,13 @@ class WikiCaller:
 
     def get_book_info(self, url: str) -> list[str]:
         """Visita a página de um livro e retorna as informações da cartão de informações para cada link <a> que estiver na página,
-            dentro de um parágrafo <p>
+                dentro de um parágrafo <p>
 
         Args:
-            url (str): link da pagina do livro
+                url (str): link da pagina do livro
 
         Returns:
-            list[str]: lista com os links dos personagens que tem um banner de nascimento ou informações bibliográficas
+                list[str]: lista com os links dos personagens que tem um banner de nascimento ou informações bibliográficas
         """
         response = requests.get(url)
         soup = BeautifulSoup(response.text, "html.parser")
@@ -124,55 +128,70 @@ class WikiCaller:
 
         for a in tqdm(
             soup.select("div.mw-parser-output > p > a"),
-            # total=len(soup.select("div.mw-parser-output > p > a")),
-            desc=f"Getting book info for {url}",
+            desc=f"Getting book info for {unquote(url.split('/')[-1])}",
         ):
-            try:
-                response = requests.get(self.url_personagem_base + a["href"])
-            except:
-                continue
-            if (
-                self.have_banner(response)
-                or self.have_informacoes_bibliograficas(response)
-                and (self.url_personagem_base + a["href"]) not in links_personagens
-            ):
-                links_personagens.append(a["href"])
+            links_personagens.append(a["href"])
 
         return list(
-            set([self.url_personagem_base + link for link in links_personagens])
+            dict.fromkeys(
+                [
+                    self.url_personagem_base + link if link.startswith("/") else link
+                    for link in links_personagens
+                ]
+            )
         )
+
+    def verify_href(self, href) -> None:
+        response = requests.get(href)
+
+        self.cache[href] = response
+
+        if self.have_banner(response) or self.have_informacoes_bibliograficas(response):
+            return href
 
     def get_data(self) -> None:
         """
         Salva os links dos personagens que tem um banner de nascimento ou informações bibliográficas dentre todos os livros.
         """
 
-        for livro in tqdm(self.url_livros, desc=f"Getting book info for all books"):
-            self.href_personagens += self.get_book_info(livro)
+        logger.info("Getting book info...")
+        with Pool() as pool:
+            self.href_personagens = pool.map(self.get_book_info, self.url_livros)
+
+        for book, book_chars in enumerate(self.href_personagens):
+            with Pool() as pool:
+                logger.info(
+                    f"Verifying {len(book_chars)} characters from {unquote(self.url_livros[book].split('/')[-1])}"
+                )
+                self.verified_characters.extend(pool.map(self.verify_href, book_chars))
+
+        self.verified_characters = [
+            char for char in self.verified_characters if char is not None
+        ]
 
     def save_href(self) -> None:
         """
         Salva os links dos personagens em um arquivo txt, um por linha
         """
         with open("href_personagens.txt", "w") as f:
-            for href in self.href_personagens:
-                f.write(href + "\n")
+            for href in self.verified_characters:
+                if href is not None:
+                    f.write(href + "\n")
 
     def append_dataframes(self) -> None:
         """
         Pega as informações de cada personagem e salva em um DataFrame
         """
-        for link_personagem in tqdm(
-            self.href_personagens, desc=f"Getting character info..."
-        ):
-            try:
-                self.dataframes_personagem.append(
-                    self.get_character_info(link_personagem)
-                )
 
-            except Exception as e:
-                print("error", e, link_personagem)
-                continue
+        logger.info(
+            "Getting character info for {} characters...".format(
+                len(self.verified_characters)
+            )
+        )
+        with Pool() as pool:
+            self.dataframes_personagem = pool.map(
+                self.get_character_info, self.verified_characters
+            )
 
         self.df_personagens = pd.concat(self.dataframes_personagem)
 
@@ -193,9 +212,9 @@ if __name__ == "__main__":
 
     wiki = WikiCaller()
     wiki.get_data()
-    # wiki.save_href()
+    wiki.save_href()
     wiki.append_dataframes()
-    # wiki.save_dataframe()
+    wiki.save_dataframe()
 
     # human readable time
     logger.info(f"Data collected and saved in {(pend.now() - now).in_words()}")

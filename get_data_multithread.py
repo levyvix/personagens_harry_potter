@@ -5,6 +5,8 @@ from tqdm import tqdm
 from loguru import logger
 import sys
 import pendulum as pend
+from urllib.parse import unquote
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 pend.set_locale("en_us")
 
@@ -38,10 +40,10 @@ class WikiCaller:
         """Visita a página de um personagem e retorna as informações da cartão de informações
 
         Args:
-            url (str): o link do site do personagem
+                url (str): o link do site do personagem
 
         Returns:
-            pandas.DataFrame: linha com as informações do personagem
+                pandas.DataFrame: linha com as informações do personagem
         """
 
         response = requests.get(url)
@@ -78,10 +80,10 @@ class WikiCaller:
         """Vê se o personagem tem um banner de nascimento na página
 
         Args:
-            response (str): link do personagem
+                response (str): link do personagem
 
         Returns:
-            bool: True se o personagem tem um banner de nascimento
+                bool: True se o personagem tem um banner de nascimento
         """
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -93,10 +95,10 @@ class WikiCaller:
         """Ver se o personagem tem a caixa de informações biográficas
 
         Args:
-            href (str): link do personagem
+                href (str): link do personagem
 
         Returns:
-            bool: True se o personagem tem a caixa de informações biográficas
+                bool: True se o personagem tem a caixa de informações biográficas
         """
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -109,13 +111,13 @@ class WikiCaller:
 
     def get_book_info(self, url: str) -> list[str]:
         """Visita a página de um livro e retorna as informações da cartão de informações para cada link <a> que estiver na página,
-            dentro de um parágrafo <p>
+                dentro de um parágrafo <p>
 
         Args:
-            url (str): link da pagina do livro
+                url (str): link da pagina do livro
 
         Returns:
-            list[str]: lista com os links dos personagens que tem um banner de nascimento ou informações bibliográficas
+                list[str]: lista com os links dos personagens que tem um banner de nascimento ou informações bibliográficas
         """
         response = requests.get(url)
         soup = BeautifulSoup(response.text, "html.parser")
@@ -125,7 +127,7 @@ class WikiCaller:
         for a in tqdm(
             soup.select("div.mw-parser-output > p > a"),
             # total=len(soup.select("div.mw-parser-output > p > a")),
-            desc=f"Getting book info for {url}",
+            desc=f"Getting book info for {unquote(url.split('/')[-1])}",
         ):
             try:
                 response = requests.get(self.url_personagem_base + a["href"])
@@ -147,8 +149,18 @@ class WikiCaller:
         Salva os links dos personagens que tem um banner de nascimento ou informações bibliográficas dentre todos os livros.
         """
 
-        for livro in tqdm(self.url_livros, desc=f"Getting book info for all books"):
-            self.href_personagens += self.get_book_info(livro)
+        with ThreadPoolExecutor() as executor:
+            futures = [
+                executor.submit(self.get_book_info, url) for url in self.url_livros
+            ]
+
+        for future in tqdm(
+            as_completed(futures), total=len(futures), desc="Getting book info..."
+        ):
+            try:
+                self.href_personagens.extend(future.result())
+            except Exception as e:
+                print("error: ", e)
 
     def save_href(self) -> None:
         """
@@ -162,16 +174,19 @@ class WikiCaller:
         """
         Pega as informações de cada personagem e salva em um DataFrame
         """
-        for link_personagem in tqdm(
-            self.href_personagens, desc=f"Getting character info..."
+        with ThreadPoolExecutor() as executor:
+            futures = [
+                executor.submit(self.get_character_info, link_personagem)
+                for link_personagem in self.href_personagens
+            ]
+
+        for future in tqdm(
+            as_completed(futures), total=len(futures), desc="Getting character info..."
         ):
             try:
-                self.dataframes_personagem.append(
-                    self.get_character_info(link_personagem)
-                )
-
+                self.dataframes_personagem.append(future.result())
             except Exception as e:
-                print("error", e, link_personagem)
+                print("error: ", e)
                 continue
 
         self.df_personagens = pd.concat(self.dataframes_personagem)
@@ -193,9 +208,9 @@ if __name__ == "__main__":
 
     wiki = WikiCaller()
     wiki.get_data()
-    # wiki.save_href()
+    wiki.save_href()
     wiki.append_dataframes()
-    # wiki.save_dataframe()
+    wiki.save_dataframe()
 
     # human readable time
     logger.info(f"Data collected and saved in {(pend.now() - now).in_words()}")

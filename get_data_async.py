@@ -1,10 +1,12 @@
 import pandas as pd
-import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 from loguru import logger
 import sys
 import pendulum as pend
+from urllib.parse import unquote
+import asyncio
+import httpx
 
 pend.set_locale("en_us")
 
@@ -34,17 +36,15 @@ class WikiCaller:
         self.dataframes_personagem = []
         self.df_personagens = pd.DataFrame()
 
-    def get_character_info(self, url: str) -> pd.DataFrame:
+    def get_character_info(self, response) -> pd.DataFrame:
         """Visita a página de um personagem e retorna as informações da cartão de informações
 
         Args:
-            url (str): o link do site do personagem
+                        url (str): o link do site do personagem
 
         Returns:
-            pandas.DataFrame: linha com as informações do personagem
+                        pandas.DataFrame: linha com as informações do personagem
         """
-
-        response = requests.get(url)
 
         soup = BeautifulSoup(response.text, "html.parser")
 
@@ -74,14 +74,14 @@ class WikiCaller:
 
         return result
 
-    def have_banner(self, response: requests.Response) -> bool:
+    def have_banner(self, response) -> bool:
         """Vê se o personagem tem um banner de nascimento na página
 
         Args:
-            response (str): link do personagem
+                        response (str): link do personagem
 
         Returns:
-            bool: True se o personagem tem um banner de nascimento
+                        bool: True se o personagem tem um banner de nascimento
         """
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -93,10 +93,10 @@ class WikiCaller:
         """Ver se o personagem tem a caixa de informações biográficas
 
         Args:
-            href (str): link do personagem
+                        href (str): link do personagem
 
         Returns:
-            bool: True se o personagem tem a caixa de informações biográficas
+                        bool: True se o personagem tem a caixa de informações biográficas
         """
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -107,17 +107,17 @@ class WikiCaller:
 
         return "Informações biográficas" in [c.text for c in columns]
 
-    def get_book_info(self, url: str) -> list[str]:
+    async def get_book_info(self, url, client) -> list[str]:
         """Visita a página de um livro e retorna as informações da cartão de informações para cada link <a> que estiver na página,
-            dentro de um parágrafo <p>
+                        dentro de um parágrafo <p>
 
         Args:
-            url (str): link da pagina do livro
+                        url (str): link da pagina do livro
 
         Returns:
-            list[str]: lista com os links dos personagens que tem um banner de nascimento ou informações bibliográficas
+                        list[str]: lista com os links dos personagens que tem um banner de nascimento ou informações bibliográficas
         """
-        response = requests.get(url)
+        response = await client.get(url)
         soup = BeautifulSoup(response.text, "html.parser")
 
         links_personagens = []
@@ -125,11 +125,12 @@ class WikiCaller:
         for a in tqdm(
             soup.select("div.mw-parser-output > p > a"),
             # total=len(soup.select("div.mw-parser-output > p > a")),
-            desc=f"Getting book info for {url}",
+            desc=f"Getting book info for {unquote(url.split('/')[-1])}",
         ):
             try:
-                response = requests.get(self.url_personagem_base + a["href"])
-            except:
+                response = await client.get(self.url_personagem_base + a["href"])
+            except Exception as e:
+                print(e)
                 continue
             if (
                 self.have_banner(response)
@@ -142,13 +143,26 @@ class WikiCaller:
             set([self.url_personagem_base + link for link in links_personagens])
         )
 
-    def get_data(self) -> None:
+    async def get_data(self) -> None:
         """
         Salva os links dos personagens que tem um banner de nascimento ou informações bibliográficas dentre todos os livros.
         """
 
-        for livro in tqdm(self.url_livros, desc=f"Getting book info for all books"):
-            self.href_personagens += self.get_book_info(livro)
+        semaphore = asyncio.Semaphore(10)
+        async with httpx.AsyncClient() as client:
+
+            async def safe_get(url):
+                async with semaphore:
+                    return await client.get(url)
+
+            tasks = [self.get_book_info(url, safe_get) for url in self.url_livros]
+            self.href_personagens = await asyncio.gather(*tasks)
+            self.href_personagens = [
+                item for sublist in self.href_personagens for item in sublist
+            ]
+            self.href_personagens = list(
+                dict.fromkeys(self.href_personagens)
+            )  # Remove duplicatas
 
     def save_href(self) -> None:
         """
@@ -158,20 +172,20 @@ class WikiCaller:
             for href in self.href_personagens:
                 f.write(href + "\n")
 
-    def append_dataframes(self) -> None:
+    async def append_dataframes(self) -> None:
         """
         Pega as informações de cada personagem e salva em um DataFrame
         """
-        for link_personagem in tqdm(
-            self.href_personagens, desc=f"Getting character info..."
-        ):
-            try:
-                self.dataframes_personagem.append(
-                    self.get_character_info(link_personagem)
-                )
 
+        async with httpx.AsyncClient() as client:
+            tasks = [client.get(url) for url in self.href_personagens]
+            responses = await asyncio.gather(*tasks)
+
+        for response in tqdm(responses, desc="Getting character info..."):
+            try:
+                self.dataframes_personagem.append(self.get_character_info(response))
             except Exception as e:
-                print("error", e, link_personagem)
+                print("error", e, response.url)
                 continue
 
         self.df_personagens = pd.concat(self.dataframes_personagem)
@@ -180,11 +194,15 @@ class WikiCaller:
         """
         Salva o DataFrame em um arquivo csv, removendo duplicatas e a autora Joanne Rowling (que não é um personagem)
         """
-        (
-            self.df_personagens.drop_duplicates(subset="Nome")
-            # drop Joanne Rowling
-            .query('Nome != "Joanne Rowling"').to_csv("personagens.csv", index=False)
-        )
+
+        if not self.df_personagens.empty:
+            (
+                self.df_personagens.drop_duplicates(subset="Nome")
+                # drop Joanne Rowling
+                .query('Nome != "Joanne Rowling"').to_csv(
+                    "personagens.csv", index=False
+                )
+            )
 
 
 if __name__ == "__main__":
@@ -192,10 +210,10 @@ if __name__ == "__main__":
     now = pend.now()
 
     wiki = WikiCaller()
-    wiki.get_data()
-    # wiki.save_href()
-    wiki.append_dataframes()
-    # wiki.save_dataframe()
+    asyncio.run(wiki.get_data())
+    wiki.save_href()
+    asyncio.run(wiki.append_dataframes())
+    wiki.save_dataframe()
 
     # human readable time
     logger.info(f"Data collected and saved in {(pend.now() - now).in_words()}")
