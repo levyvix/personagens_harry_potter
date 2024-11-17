@@ -1,10 +1,12 @@
+import sys
+
+import dlt
 import pandas as pd
+import pendulum as pend
 import requests
 from bs4 import BeautifulSoup
-from tqdm import tqdm
 from loguru import logger
-import sys
-import pendulum as pend
+from tqdm import tqdm
 
 pend.set_locale("en_us")
 
@@ -18,7 +20,6 @@ logger.add(
 
 
 class WikiCaller:
-
     def __init__(self):
         self.url_personagem_base = "https://harrypotter.fandom.com"
         self.url_livros = [
@@ -32,9 +33,12 @@ class WikiCaller:
         ]
         self.href_personagens = []
         self.dataframes_personagem = []
-        self.df_personagens = pd.DataFrame()
+        self.list_of_dicts = []
+        self.cache = {}
+        self.verified_characters = []
+        
 
-    def get_character_info(self, url: str) -> pd.DataFrame:
+    def get_character_info(self, url: str) -> dict:
         """Visita a página de um personagem e retorna as informações da cartão de informações
 
         Args:
@@ -44,14 +48,15 @@ class WikiCaller:
             pandas.DataFrame: linha com as informações do personagem
         """
 
-        response = requests.get(url)
+        response = self.cache.get(url, requests.get(url))
 
         soup = BeautifulSoup(response.text, "html.parser")
 
-        nome = soup.select(
+        nome = soup.select_one(
             "h2.pi-item.pi-item-spacing.pi-title.pi-secondary-background"
-        )[0].text
+        ).text
         columns = soup.select("h3.pi-data-label.pi-secondary-font")
+        column_names = [c.text for c in columns]
         infos = []
         for el in soup.select("div.pi-data-value.pi-font"):
             # if its a list then put a comma between each element
@@ -60,19 +65,14 @@ class WikiCaller:
             else:
                 infos.append(el.text)
 
-        result = pd.DataFrame([infos], columns=[el.text for el in columns])
-        # include name
-        result = result.assign(Nome=nome)
+        data = {col: [info] for col, info in zip(column_names, infos)}
+        data["Nome"] = nome
+        data["url"] = url
+        
+        self.cache[url] = response
+        
 
-        # name first
-        result = result[["Nome"] + [el.text for el in columns]]
-
-        # clean all columns, removing brackets and numbers like [4]
-        for col in result.columns:
-            result[col] = result[col].str.replace(r"\[.*\]", "")
-            result[col] = result[col].str.strip()
-
-        return result
+        return data
 
     def have_banner(self, response: requests.Response) -> bool:
         """Vê se o personagem tem um banner de nascimento na página
@@ -86,10 +86,9 @@ class WikiCaller:
 
         soup = BeautifulSoup(response.text, "html.parser")
 
-        columns = soup.select("h3.pi-data-label.pi-secondary-font")
-        return "Nascimento" in [c.text for c in columns]
+        return "Nascimento" in [c.text for c in soup.select("h3.pi-data-label.pi-secondary-font")]
 
-    def have_informacoes_bibliograficas(self, response):
+    def have_informacoes_bibliograficas(self, soup):
         """Ver se o personagem tem a caixa de informações biográficas
 
         Args:
@@ -99,13 +98,23 @@ class WikiCaller:
             bool: True se o personagem tem a caixa de informações biográficas
         """
 
+        return "Informações biográficas" in [
+            c.text
+            for c in soup.select(
+                "h2.pi-item.pi-header.pi-secondary-font.pi-item-spacing.pi-secondary-background > center"
+            )
+        ]
+
+    def verify_href(self, href):
+        response = self.cache.get(href, requests.get(href))
         soup = BeautifulSoup(response.text, "html.parser")
 
-        columns = soup.select(
-            "h2.pi-item.pi-header.pi-secondary-font.pi-item-spacing.pi-secondary-background > center"
+        self.cache[href] = response
+        return (
+            href
+            if self.have_banner(soup) or self.have_informacoes_bibliograficas(soup)
+            else None
         )
-
-        return "Informações biográficas" in [c.text for c in columns]
 
     def get_book_info(self, url: str) -> list[str]:
         """Visita a página de um livro e retorna as informações da cartão de informações para cada link <a> que estiver na página,
@@ -120,25 +129,17 @@ class WikiCaller:
         response = requests.get(url)
         soup = BeautifulSoup(response.text, "html.parser")
 
-        links_personagens = []
+        links_personagens = set()
 
         for a in tqdm(
             soup.select("div.mw-parser-output > p > a"),
             desc=f"Getting book info for {url}",
         ):
-            try:
-                response = requests.get(self.url_personagem_base + a["href"])
-            except:  # noqa: E722
-                continue
-            if (
-                self.have_banner(response)
-                or self.have_informacoes_bibliograficas(response)
-                and (self.url_personagem_base + a["href"]) not in links_personagens
-            ):
-                links_personagens.append(a["href"])
+            links_personagens.add(a["href"])
 
-        return list(
-            set([self.url_personagem_base + link for link in links_personagens])
+        return (
+            self.url_personagem_base + link if link.startswith("/") else link
+            for link in links_personagens
         )
 
     def get_data(self) -> None:
@@ -148,53 +149,73 @@ class WikiCaller:
 
         for livro in tqdm(self.url_livros, desc="Getting book info for all books"):
             self.href_personagens += self.get_book_info(livro)
+            
+            
+    def verify_links(self):
+        
+        self.verified_characters = (
+            self.verify_href(href) for href in tqdm(self.href_personagens, desc="Verifying character links...")
+        )
+        
+        self.verified_characters = list(filter(None, self.verified_characters))
 
-    def save_href(self) -> None:
-        """
-        Salva os links dos personagens em um arquivo txt, um por linha
-        """
-        with open("href_personagens.txt", "w") as f:
-            for href in self.href_personagens:
-                f.write(href + "\n")
-
-    def append_dataframes(self) -> None:
+    def get_char_data(self) -> None:
         """
         Pega as informações de cada personagem e salva em um DataFrame
         """
         for link_personagem in tqdm(
-            self.href_personagens, desc="Getting character info..."
+            self.verified_characters, desc="Getting character info..."
         ):
             try:
-                self.dataframes_personagem.append(
-                    self.get_character_info(link_personagem)
-                )
+                self.list_of_dicts.append(self.get_character_info(link_personagem))
 
             except Exception as e:
                 print("error", e, link_personagem)
                 continue
 
-        self.df_personagens = pd.concat(self.dataframes_personagem)
+        self.list_of_dicts = (
+            pd.DataFrame(self.list_of_dicts)
+            .query('Nome != "Joanne Rowling"')
+            .drop_duplicates(subset="Nome")
+            .to_dict(orient="records")
+        )
+        logger.info("Got all character info")
 
     def save_dataframe(self):
         """
         Salva o DataFrame em um arquivo csv, removendo duplicatas e a autora Joanne Rowling (que não é um personagem)
         """
         (
-            self.df_personagens.drop_duplicates(subset="Nome")
-            # drop Joanne Rowling
-            .query('Nome != "Joanne Rowling"').to_csv("personagens.csv", index=False)
+            pd.DataFrame(self.list_of_dicts).to_csv(
+                "personagens.csv", index=False, sep=";"
+            )
         )
+
+    def save_data_to_duckdb(self):
+        pipeline = dlt.pipeline(
+            pipeline_name="personagens_harry_potter",
+            dataset_name="harry_potter",
+            destination="duckdb",
+        )
+
+        load_info = pipeline.run(
+            data=self.list_of_dicts,
+            table_name="personagens",
+            write_disposition="replace",
+        )
+
+        logger.info(load_info)
 
 
 if __name__ == "__main__":
-
     now = pend.now()
 
     wiki = WikiCaller()
     wiki.get_data()
-    wiki.save_href()
-    wiki.append_dataframes()
+    wiki.verify_links()
+    wiki.get_char_data()
     wiki.save_dataframe()
+    wiki.save_data_to_duckdb()
 
     # human readable time
     logger.info(f"Data collected and saved in {(pend.now() - now).in_words()}")

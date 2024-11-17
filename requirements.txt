@@ -8,3 +8,4 @@ selectolax
 pathos
 aiohttp
 duckdb
+dlt
