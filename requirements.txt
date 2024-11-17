@@ -4,3 +4,7 @@ beautifulsoup4
 tqdm
 loguru==0.7.2
 pendulum==3.0.0
+selectolax
+pathos
+aiohttp
+duckdb

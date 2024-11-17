@@ -6,9 +6,9 @@ Web Scraping de personagens da série Harry Potter.
 
 Utilizando a biblioteca BeautifulSoup, foi feito um web scraping no site [Harry Potter Wiki](https://harrypotter.fandom.com/pt-br/wiki/P%C3%A1gina_Principal) para obter os nomes dos personagens da série.
 
-Foi criado um script que faz a requisição para cada página dos 7 livros. Cada página contém um resumo dos acontecimentos e dos personagens que aparecem em cada cena.
+Foi criado um script que faz a requisição para cada página dos 7 livros. Cada página contém um resumo dos acontecimentos e dos personagens que aparecem em cada cena/capítulo.
 
-Para cada personagem, contém um hyperlink que leva para a página do personagem, onde contém mais informações sobre ele.
+O script foi feito para obter o nome do personagem e o hyperlink para a página do personagem. Com esses dados, é possível fazer um web scraping na página do personagem para obter mais informações sobre ele.
 
 ## Como executar?
 
@@ -23,11 +23,11 @@ python -m pip install -r requirements.txt
 python get_data.py
 ```
 
-Vai ser criado um arquivo chamado `personagens.csv` com os dados obtidos.
+Vai ser criado um arquivo chamado `personagens.csv` com os dados obtidos. E também um arquivo `personagens_harry_potter.duckdb` com o mesmo nome, que pode ser utilizado para fazer consultas SQL usando a biblioteca DuckDB.
 
 Lembre-se que os dados ainda precisam ser limpos e tratados para serem utilizados em um projeto.
 
-### Versão com multiprocessamento
+### Versão em paralelo (6 segundos)
 
 Para obter os dados mais rapidamente, foi criado um script que utiliza multiprocessamento para fazer as requisições de forma paralela.
 
@@ -35,6 +35,14 @@ Para obter os dados mais rapidamente, foi criado um script que utiliza multiproc
 
 Para executar o script com multiprocessamento, execute o seguinte comando:
 
+#### Multiprocessamento
+
 ```bash
 python get_data_multiprocessing.py
+```
+
+#### Assíncrono
+
+```bash
+python get_data_async.py
 ```
