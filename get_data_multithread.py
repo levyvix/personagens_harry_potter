@@ -131,7 +131,7 @@ class WikiCaller:
         ):
             try:
                 response = requests.get(self.url_personagem_base + a["href"])
-            except: # noqa: E722
+            except:  # noqa: E722
                 continue
             if (
                 self.have_banner(response)
