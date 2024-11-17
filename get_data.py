@@ -124,12 +124,11 @@ class WikiCaller:
 
         for a in tqdm(
             soup.select("div.mw-parser-output > p > a"),
-            # total=len(soup.select("div.mw-parser-output > p > a")),
             desc=f"Getting book info for {url}",
         ):
             try:
                 response = requests.get(self.url_personagem_base + a["href"])
-            except:
+            except: # noqa: E722
                 continue
             if (
                 self.have_banner(response)
@@ -147,7 +146,7 @@ class WikiCaller:
         Salva os links dos personagens que tem um banner de nascimento ou informações bibliográficas dentre todos os livros.
         """
 
-        for livro in tqdm(self.url_livros, desc=f"Getting book info for all books"):
+        for livro in tqdm(self.url_livros, desc="Getting book info for all books"):
             self.href_personagens += self.get_book_info(livro)
 
     def save_href(self) -> None:
@@ -163,7 +162,7 @@ class WikiCaller:
         Pega as informações de cada personagem e salva em um DataFrame
         """
         for link_personagem in tqdm(
-            self.href_personagens, desc=f"Getting character info..."
+            self.href_personagens, desc="Getting character info..."
         ):
             try:
                 self.dataframes_personagem.append(
@@ -193,9 +192,9 @@ if __name__ == "__main__":
 
     wiki = WikiCaller()
     wiki.get_data()
-    # wiki.save_href()
+    wiki.save_href()
     wiki.append_dataframes()
-    # wiki.save_dataframe()
+    wiki.save_dataframe()
 
     # human readable time
     logger.info(f"Data collected and saved in {(pend.now() - now).in_words()}")
