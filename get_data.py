@@ -1,194 +1,201 @@
-
-
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from tqdm.notebook import tqdm
+from tqdm import tqdm
+from loguru import logger
+import sys
+import pendulum as pend
+
+pend.set_locale("en_us")
+
+logger.remove()
+
+logger.add(
+    sys.stdout,
+    colorize=True,
+    format="<green>{time:HH:mm:ss}</green> | <level>{level}</level> | <level>{message}</level>",
+)
 
 
+class WikiCaller:
 
-url_personagem_base = "https://harrypotter.fandom.com"
+    def __init__(self):
+        self.url_personagem_base = "https://harrypotter.fandom.com"
+        self.url_livros = [
+            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_Pedra_Filosofal",
+            # "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_C%C3%A2mara_Secreta",
+            # "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_o_Prisioneiro_de_Azkaban",
+            # "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_o_C%C3%A1lice_de_Fogo",
+            # "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_Ordem_da_F%C3%AAnix",
+            # "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_o_Enigma_do_Pr%C3%ADncipe",
+            # "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_as_Rel%C3%ADquias_da_Morte",
+        ]
+        self.href_personagens = []
+        self.dataframes_personagem = []
+        self.df_personagens = pd.DataFrame()
 
+    def get_character_info(self, url: str) -> pd.DataFrame:
+        """Visita a página de um personagem e retorna as informações da cartão de informações
 
-def get_character_info(url):
-    """Visita a página de um personagem e retorna as informações da cartão de informações
+        Args:
+            url (str): o link do site do personagem
 
-    Args:
-        url (str): o link do site do personagem
+        Returns:
+            pandas.DataFrame: linha com as informações do personagem
+        """
 
-    Returns:
-        pandas.DataFrame: linha com as informações do personagem
-    """
+        response = requests.get(url)
 
-    response = requests.get(url)
+        soup = BeautifulSoup(response.text, "html.parser")
 
-    soup = BeautifulSoup(response.text, "html.parser")
+        nome = soup.select(
+            "h2.pi-item.pi-item-spacing.pi-title.pi-secondary-background"
+        )[0].text
+        columns = soup.select("h3.pi-data-label.pi-secondary-font")
+        infos = []
+        for el in soup.select("div.pi-data-value.pi-font"):
+            # if its a list then put a comma between each element
+            if len(el.select("li")) > 0:
+                infos.append(", ".join([li.text for li in el.select("li")]))
+            else:
+                infos.append(el.text)
 
-    nome = soup.select("h2.pi-item.pi-item-spacing.pi-title.pi-secondary-background")[
-        0
-    ].text
-    columns = soup.select("h3.pi-data-label.pi-secondary-font")
-    infos = []
-    for el in soup.select("div.pi-data-value.pi-font"):
-        # if its a list then put a comma between each element
-        if len(el.select("li")) > 0:
-            infos.append(", ".join([li.text for li in el.select("li")]))
-        else:
-            infos.append(el.text)
+        result = pd.DataFrame([infos], columns=[el.text for el in columns])
+        # include name
+        result = result.assign(Nome=nome)
 
-    result = pd.DataFrame([infos], columns=[el.text for el in columns])
-    # include name
-    result = result.assign(Nome=nome)
+        # name first
+        result = result[["Nome"] + [el.text for el in columns]]
 
-    # name first
-    result = result[["Nome"] + [el.text for el in columns]]
+        # clean all columns, removing brackets and numbers like [4]
+        for col in result.columns:
+            result[col] = result[col].str.replace(r"\[.*\]", "")
+            result[col] = result[col].str.strip()
 
-    # clean all columns, removing brackets and numbers like [4]
-    for col in result.columns:
-        result[col] = result[col].str.replace(r"\[.*\]", "")
-        result[col] = result[col].str.strip()
+        return result
 
-    return result
+    def have_banner(self, response: requests.Response) -> bool:
+        """Vê se o personagem tem um banner de nascimento na página
 
+        Args:
+            response (str): link do personagem
 
-def have_banner(response):
-    """Vê se o personagem tem um banner de nascimento na página
+        Returns:
+            bool: True se o personagem tem um banner de nascimento
+        """
 
-    Args:
-        response (str): link do personagem
+        soup = BeautifulSoup(response.text, "html.parser")
 
-    Returns:
-        bool: True se o personagem tem um banner de nascimento
-    """
+        columns = soup.select("h3.pi-data-label.pi-secondary-font")
+        return "Nascimento" in [c.text for c in columns]
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    def have_informacoes_bibliograficas(self, response):
+        """Ver se o personagem tem a caixa de informações biográficas
 
-    columns = soup.select("h3.pi-data-label.pi-secondary-font")
-    return "Nascimento" in [c.text for c in columns]
+        Args:
+            href (str): link do personagem
 
+        Returns:
+            bool: True se o personagem tem a caixa de informações biográficas
+        """
 
-def have_informacoes_bibliograficas(response):
-    """Ver se o personagem tem a caixa de informações biográficas
+        soup = BeautifulSoup(response.text, "html.parser")
 
-    Args:
-        href (str): link do personagem
+        columns = soup.select(
+            "h2.pi-item.pi-header.pi-secondary-font.pi-item-spacing.pi-secondary-background > center"
+        )
 
-    Returns:
-        bool: True se o personagem tem a caixa de informações biográficas
-    """
+        return "Informações biográficas" in [c.text for c in columns]
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    def get_book_info(self, url: str) -> list[str]:
+        """Visita a página de um livro e retorna as informações da cartão de informações para cada link <a> que estiver na página,
+            dentro de um parágrafo <p>
 
-    columns = soup.select(
-        "h2.pi-item.pi-header.pi-secondary-font.pi-item-spacing.pi-secondary-background > center"
-    )
+        Args:
+            url (str): link da pagina do livro
 
-    return "Informações biográficas" in [c.text for c in columns]
+        Returns:
+            list[str]: lista com os links dos personagens que tem um banner de nascimento ou informações bibliográficas
+        """
+        response = requests.get(url)
+        soup = BeautifulSoup(response.text, "html.parser")
 
+        links_personagens = []
 
-def get_book_info(url):
-    """Visita a página de um livro e retorna as informações da cartão de informações para cada link <a> que estiver na página,
-        dentro de um parágrafo <p>
-
-    Args:
-        url (str): link da pagina do livro
-
-    Returns:
-        list[str]: lista com os links dos personagens que tem um banner de nascimento ou informações biográficas
-    """
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    links_personagens = []
-
-    for a in tqdm(
-        soup.select("div.mw-parser-output > p > a"),
-        total=len(soup.select("div.mw-parser-output > p > a")),
-    ):
-        try:
-            response = requests.get(url_personagem_base + a["href"])
-        except:
-            continue
-        if (
-            have_banner(response)
-            or have_informacoes_bibliograficas(response)
-            and (url_personagem_base + a["href"]) not in links_personagens
+        for a in tqdm(
+            soup.select("div.mw-parser-output > p > a"),
+            # total=len(soup.select("div.mw-parser-output > p > a")),
+            desc=f"Getting book info for {url}",
         ):
-            links_personagens.append(a["href"])
+            try:
+                response = requests.get(self.url_personagem_base + a["href"])
+            except:
+                continue
+            if (
+                self.have_banner(response)
+                or self.have_informacoes_bibliograficas(response)
+                and (self.url_personagem_base + a["href"]) not in links_personagens
+            ):
+                links_personagens.append(a["href"])
 
-    return list(set([url_personagem_base + link for link in links_personagens]))
+        return list(
+            set([self.url_personagem_base + link for link in links_personagens])
+        )
 
+    def get_data(self) -> None:
+        """
+        Salva os links dos personagens que tem um banner de nascimento ou informações bibliográficas dentre todos os livros.
+        """
 
+        for livro in tqdm(self.url_livros, desc=f"Getting book info for all books"):
+            self.href_personagens += self.get_book_info(livro)
 
-url_livro1 = (
-    "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_Pedra_Filosofal"
-)
-url_livro2 = (
-    "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_C%C3%A2mara_Secreta"
-)
-url_livro3 = (
-    "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_o_Prisioneiro_de_Azkaban"
-)
-url_livro4 = (
-    "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_o_C%C3%A1lice_de_Fogo"
-)
-url_livro5 = (
-    "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_Ordem_da_F%C3%AAnix"
-)
-url_livro6 = (
-    "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_o_Enigma_do_Pr%C3%ADncipe"
-)
-url_livro7 = "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_as_Rel%C3%ADquias_da_Morte"
+    def save_href(self) -> None:
+        """
+        Salva os links dos personagens em um arquivo txt, um por linha
+        """
+        with open("href_personagens.txt", "w") as f:
+            for href in self.href_personagens:
+                f.write(href + "\n")
 
-livros = [
-    url_livro1,
-    url_livro2,
-    url_livro3,
-    url_livro4,
-    url_livro5,
-    url_livro6,
-    url_livro7,
-]
+    def append_dataframes(self) -> None:
+        """
+        Pega as informações de cada personagem e salva em um DataFrame
+        """
+        for link_personagem in tqdm(
+            self.href_personagens, desc=f"Getting character info..."
+        ):
+            try:
+                self.dataframes_personagem.append(
+                    self.get_character_info(link_personagem)
+                )
 
-href_personagens = []
-for livro in tqdm(livros):
-    href_personagens += get_book_info(livro)
+            except Exception as e:
+                print("error", e, link_personagem)
+                continue
 
+        self.df_personagens = pd.concat(self.dataframes_personagem)
 
-
-
-# write to file
-with open("href_personagens.txt", "w") as f:
-    for href in href_personagens:
-        f.write(href + "\n")
-
-
-
-
-# read
-with open("href_personagens.txt", "r") as f:
-    # remove \n
-    href_personagens = [line[:-1] for line in f.readlines()]
-
-
-
-
-dataframes_personagem = []
-for link_personagem in href_personagens:
-    try:
-        dataframes_personagem.append(get_character_info(link_personagem))
-
-    except Exception as e:
-        print("error", e, link_personagem)
-        continue
+    def save_dataframe(self):
+        """
+        Salva o DataFrame em um arquivo csv, removendo duplicatas e a autora Joanne Rowling (que não é um personagem)
+        """
+        (
+            self.df_personagens.drop_duplicates(subset="Nome")
+            # drop Joanne Rowling
+            .query('Nome != "Joanne Rowling"').to_csv("personagens.csv", index=False)
+        )
 
 
-df_personagens = pd.concat(dataframes_personagem)
+if __name__ == "__main__":
 
+    now = pend.now()
 
+    wiki = WikiCaller()
+    wiki.get_data()
+    wiki.save_href()
+    wiki.append_dataframes()
+    wiki.save_dataframe()
 
-(
-    df_personagens.drop_duplicates(subset="Nome")
-    # drop Joanne Rowling
-    .query('Nome != "Joanne Rowling"').to_csv("personagens.csv", index=False)
-)
+    # human readable time
+    logger.info(f"Data collected and saved in {(pend.now() - now).in_words()}")
