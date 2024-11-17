@@ -8,7 +8,6 @@ import pendulum as pend
 from urllib.parse import unquote
 from pathos.multiprocessing import ProcessingPool as Pool
 from typing import Optional
-import numpy as np
 from itertools import chain, filterfalse
 
 pend.set_locale("en_us")
