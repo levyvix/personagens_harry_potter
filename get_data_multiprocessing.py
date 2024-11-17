@@ -1,14 +1,15 @@
+import sys
+from itertools import chain, filterfalse
+from typing import Optional
+from urllib.parse import unquote
+
 import pandas as pd
+import pendulum as pend
 import requests
 from bs4 import BeautifulSoup
-from tqdm import tqdm
 from loguru import logger
-import sys
-import pendulum as pend
-from urllib.parse import unquote
 from pathos.multiprocessing import ProcessingPool as Pool
-from typing import Optional
-from itertools import chain, filterfalse
+from tqdm import tqdm
 
 pend.set_locale("en_us")
 
@@ -210,7 +211,6 @@ class WikiCaller:
 
 
 if __name__ == "__main__":
-
     now = pend.now()
 
     wiki = WikiCaller()
