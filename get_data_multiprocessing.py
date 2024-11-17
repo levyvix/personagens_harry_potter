@@ -48,7 +48,8 @@ class WikiCaller:
                 pandas.DataFrame: linha com as informações do personagem
         """
         
-        response = self.cache.get(url, requests.get(url))
+        #TODO: porque tem url que nao esta no cache?
+        response = self.cache.get(url, requests.get(url)) 
 
         soup = BeautifulSoup(response.text, "html.parser")
 
