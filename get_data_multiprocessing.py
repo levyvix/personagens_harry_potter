@@ -44,8 +44,8 @@ class WikiCaller:
         self.list_of_dicts = []
 
     def get_book_info(self, url: str) -> list[str]:
-        """Visita a página de um livro e retorna as informações da cartão de informações para cada link <a> que estiver na página,
-                dentro de um parágrafo <p>
+        """Visita a página de um livro e retorna as informações da cartão de informações para cada link <a> que estiver
+        na página, dentro de um parágrafo <p>
 
         Args:
                 url (str): link da pagina do livro

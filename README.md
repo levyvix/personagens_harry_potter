@@ -46,3 +46,19 @@ python get_data_multiprocessing.py
 ```bash
 python get_data_async.py
 ```
+
+## Docker
+
+Este repositório também possui um Dockerfile que pode ser utilizado para executar o script em um container Docker.
+
+Para construir a imagem, execute o seguinte comando:
+
+```bash
+docker build -t personagens_harry_potter .
+```
+
+Para executar o script dentro do container, execute o seguinte comando:
+
+```bash
+docker run -it --rm personagens_harry_potter
+```
