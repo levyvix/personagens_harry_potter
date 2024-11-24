@@ -36,7 +36,6 @@ class WikiCaller:
         self.list_of_dicts = []
         self.cache = {}
         self.verified_characters = []
-        
 
     def get_character_info(self, url: str) -> dict:
         """Visita a página de um personagem e retorna as informações da cartão de informações
@@ -68,9 +67,8 @@ class WikiCaller:
         data = {col: [info] for col, info in zip(column_names, infos)}
         data["Nome"] = nome
         data["url"] = url
-        
+
         self.cache[url] = response
-        
 
         return data
 
@@ -86,7 +84,9 @@ class WikiCaller:
 
         soup = BeautifulSoup(response.text, "html.parser")
 
-        return "Nascimento" in [c.text for c in soup.select("h3.pi-data-label.pi-secondary-font")]
+        return "Nascimento" in [
+            c.text for c in soup.select("h3.pi-data-label.pi-secondary-font")
+        ]
 
     def have_informacoes_bibliograficas(self, soup):
         """Ver se o personagem tem a caixa de informações biográficas
@@ -149,14 +149,14 @@ class WikiCaller:
 
         for livro in tqdm(self.url_livros, desc="Getting book info for all books"):
             self.href_personagens += self.get_book_info(livro)
-            
-            
+
     def verify_links(self):
-        
+
         self.verified_characters = (
-            self.verify_href(href) for href in tqdm(self.href_personagens, desc="Verifying character links...")
+            self.verify_href(href)
+            for href in tqdm(self.href_personagens, desc="Verifying character links...")
         )
-        
+
         self.verified_characters = list(filter(None, self.verified_characters))
 
     def get_char_data(self) -> None:

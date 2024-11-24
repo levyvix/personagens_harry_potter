@@ -2,8 +2,7 @@ import asyncio
 import sys
 import unicodedata
 from itertools import chain
-from typing import Optional
-from urllib.parse import unquote
+from typing import Optional, Set, Union
 
 import aiohttp
 import dlt
@@ -20,8 +19,10 @@ logger.add(
     format="<green>{time:HH:mm:ss}</green> | <level>{level}</level> | <level>{message}</level>",
 )
 
+
 class WikiCaller:
     """Class to fetch Harry Potter characters from the Harry Potter Wiki."""
+
     def __init__(self):
         self.url_personagem_base = "https://harrypotter.fandom.com"
         self.url_livros = [
@@ -47,19 +48,19 @@ class WikiCaller:
             self.cache[url] = text
             return text
 
-    async def get_book_info(
-        self, session: aiohttp.ClientSession, url: str
-    ) -> list[str]:
+    async def get_book_info(self, session: aiohttp.ClientSession, url: str) -> Set[str]:
         """Fetch character links from a book page."""
         html = await self.fetch(session, url)
         soup = HTMLParser(html)
-        return {
-                self.url_personagem_base + a.attributes["href"]
-                if a.attributes["href"].startswith("/")
-                else a.attributes["href"]
-                for a in soup.css("div.mw-parser-output > p > a")
-            }
-        
+        links: Set[str] = set()
+
+        for a in soup.css("div.mw-parser-output > p > a"):
+            href = a.attributes.get("href") if hasattr(a, "attributes") else None
+
+            if href and href.startswith("/"):
+                links.add(self.url_personagem_base + href)
+
+        return links
 
     async def verify_href(
         self, session: aiohttp.ClientSession, href: str
@@ -98,7 +99,7 @@ class WikiCaller:
 
     async def get_character_info(
         self, session: aiohttp.ClientSession, url: str
-    ) -> dict[str, str]:
+    ) -> dict[str, str | list[str]]:
         """Fetch character information from a character page."""
 
         if self.cache.get(url):
@@ -120,19 +121,23 @@ class WikiCaller:
         ]
 
         infos = [
-            [li.text(strip=True) for li in el.css("li")]
-            if el.css("li")
-            else [el.text()]
+            (
+                [li.text(strip=True) for li in el.css("li")]
+                if el.css("li")
+                else [el.text()]
+            )
             for el in soup.css("div.pi-data-value.pi-font")
         ]
 
-        data = {column: info for column, info in zip(columns, infos)}
+        data: dict[str, Union[str, list]] = {
+            column: info for column, info in zip(columns, infos)
+        }
         data["Nome"] = nome
         data["url"] = url
 
         return data
 
-    async def get_data(self):
+    async def get_book_data(self):
         """Collect character links."""
         logger.info("Fetching character links...")
         async with aiohttp.ClientSession() as session:
@@ -159,13 +164,15 @@ class WikiCaller:
                 ],
                 desc="Fetching character data...",
             )
-            
+
             # remove duplicate names
-            
-            self.list_of_dicts = pd.DataFrame(data).drop_duplicates(subset="Nome").query(
-                'Nome != "Joanne Rowling"'
-            ).to_dict(orient="records")
-            
+
+            self.list_of_dicts = (
+                pd.DataFrame(data)
+                .drop_duplicates(subset="Nome")
+                .query('Nome != "Joanne Rowling"')
+                .to_dict(orient="records")
+            )
 
     def save_data_to_duckdb(self):
         """Save the dataframe to a duckdb database."""
@@ -191,7 +198,7 @@ class WikiCaller:
 async def main():
     now = pend.now()
     wiki = WikiCaller()
-    await wiki.get_data()
+    await wiki.get_book_data()
     await wiki.get_char_data()
     wiki.save_data_to_duckdb()
     wiki.save_to_csv()

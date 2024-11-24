@@ -1,7 +1,7 @@
 import sys
 import unicodedata
 from itertools import chain, filterfalse
-from typing import Optional
+from typing import Optional, Set, Union
 from urllib.parse import unquote
 
 import dlt
@@ -26,8 +26,8 @@ logger.add(
 
 class WikiCaller:
     def __init__(self):
-        self.url_personagem_base = "https://harrypotter.fandom.com"
-        self.url_livros = [
+        self.url_personagem_base: str = "https://harrypotter.fandom.com"
+        self.url_livros: list[str] = [
             "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_Pedra_Filosofal",
             "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_C%C3%A2mara_Secreta",
             "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_o_Prisioneiro_de_Azkaban",
@@ -37,11 +37,10 @@ class WikiCaller:
             "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_as_Rel%C3%ADquias_da_Morte",
         ]
         self.href_personagens = []
-        self.dataframes_personagem = []
-        self.cache = {}
-        self.verified_characters = []
-        self.session = requests.Session()
-        self.list_of_dicts = []
+        self.cache: dict[str, requests.Response] = {}
+        self.verified_characters: list[str] = []
+        self.session: requests.Session = requests.Session()
+        self.list_of_dicts: list[dict] = []
 
     def get_book_info(self, url: str) -> list[str]:
         """Visita a página de um livro e retorna as informações da cartão de informações para cada link <a> que estiver
@@ -56,17 +55,18 @@ class WikiCaller:
         response = self.session.get(url)
         soup = HTMLParser(response.text)
 
-        return list(
-            {
-                self.url_personagem_base + a.attributes["href"]
-                if a.attributes["href"].startswith("/")
-                else a.attributes["href"]
-                for a in tqdm(
-                    soup.css("div.mw-parser-output > p > a"),
-                    desc=f"Getting book info for {unquote(url.split('/')[-1])}",
-                )
-            }
-        )
+        links: Set[str] = set()
+
+        for a in tqdm(
+            soup.css("div.mw-parser-output > p > a"),
+            desc=f"Getting book info for {unquote(url.split('/')[-1])}",
+        ):
+            href = a.attributes.get("href") if hasattr(a, "attributes") else None
+
+            if href and href.startswith("/"):
+                links.add(self.url_personagem_base + href)
+
+        return list(links)
 
     def verify_href(self, href: str) -> Optional[str]:
         """
@@ -79,24 +79,25 @@ class WikiCaller:
         Returns:
             Optional[str]: The `href` if the character has a banner or bibliographic info, otherwise `None`.
         """
-        response = self.cache.get(href, self.session.get(href))
+        response: requests.Response = self.cache.get(href, self.session.get(href))
 
         self.cache[href] = response
 
         return (
             href
-            if self.have_banner(response) or self.have_informacoes_bibliograficas(response)
+            if self.have_banner(response)
+            or self.have_informacoes_bibliograficas(response)
             else None
         )
 
-    def remove_accents(self, text):
+    def remove_accents(self, text: str) -> str:
         return "".join(
             char
             for char in unicodedata.normalize("NFD", text)
             if unicodedata.category(char) != "Mn"
         )
 
-    def get_character_info(self, url: str) -> dict[str, str]:
+    def get_character_info(self, url: str) -> dict:
         """Visita a página de um personagem e retorna as informações da cartão de informações
 
         Args:
@@ -126,7 +127,7 @@ class WikiCaller:
             for el in soup.css("div.pi-data-value.pi-font")
         ]
 
-        data = {column: info for column, info in zip(column_names, infos)}
+        data: dict[str, Union[str, list]] = {column: info for column, info in zip(column_names, infos)}
         data["Nome"] = nome
         data["url"] = url
 
@@ -143,13 +144,13 @@ class WikiCaller:
         """
 
         soup = HTMLParser(response.text)
-    
+
         return "Nascimento" in {
             c.text() for c in soup.css("h3.pi-data-label.pi-secondary-font")
         }
 
     def have_informacoes_bibliograficas(self, response: requests.Response) -> bool:
-        """Ver se o personagem tem a caixa de informações biográficas
+        """Ver se o personagem tem a caixa de "informações bibliográficas"
 
         Args:
             response (requests.Response): link do personagem
@@ -179,10 +180,9 @@ class WikiCaller:
 
             logger.info("Flattening all the hrefs from all books...")
 
-            self.href_personagens = chain.from_iterable(self.href_personagens)
-            self.href_personagens = dict.fromkeys(self.href_personagens)
+            self.href_personagens = dict.fromkeys(chain.from_iterable(self.href_personagens))
 
-            logger.info(f"Verifying hrefs...")
+            logger.info("Verifying hrefs...")
 
             self.verified_characters = pool.map(self.verify_href, self.href_personagens)
 
@@ -199,13 +199,14 @@ class WikiCaller:
 
         logger.info("Getting character info for all verified characters...")
         with Pool() as pool:
-            data = pool.map(
-                self.get_character_info, self.verified_characters
-            )
+            data = pool.map(self.get_character_info, self.verified_characters)
 
-        self.list_of_dicts = pd.DataFrame(data).drop_duplicates(subset="Nome").query(
-                'Nome != "Joanne Rowling"'
-            ).to_dict(orient="records")
+        self.list_of_dicts = (
+            pd.DataFrame(data)
+            .drop_duplicates(subset="Nome")
+            .query('Nome != "Joanne Rowling"')
+            .to_dict(orient="records") # transformando de lista de dicionarios para carregar com dlt
+        )
 
     def save_to_csv(self):
         """Save the dataframe to a csv file."""
@@ -225,6 +226,7 @@ class WikiCaller:
             table_name="personagens",
             write_disposition="replace",
         )
+
 
 if __name__ == "__main__":
     now = pend.now()
