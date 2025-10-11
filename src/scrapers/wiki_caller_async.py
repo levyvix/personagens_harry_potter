@@ -1,45 +1,39 @@
+"""Scraper assíncrono usando aiohttp e asyncio."""
+
 import asyncio
-import sys
-import unicodedata
-from itertools import chain
-from typing import Optional, Set, Union
 
 import aiohttp
-import dlt
-import pandas as pd
 import pendulum as pend
 from loguru import logger
 from selectolax.lexbor import LexborHTMLParser as HTMLParser
 from tqdm.asyncio import tqdm as async_tqdm
 
-logger.remove()
-logger.add(
-    sys.stdout,
-    colorize=True,
-    format="<green>{time:HH:mm:ss}</green> | <level>{level}</level> | <level>{message}</level>",
-)
+from .base import BaseWikiCaller
 
 
-class WikiCaller:
-    """Class to fetch Harry Potter characters from the Harry Potter Wiki."""
+class WikiCaller(BaseWikiCaller):
+    """Scraper assíncrono para personagens do Wiki de Harry Potter.
+
+    Usa aiohttp e asyncio para fazer múltiplas requisições HTTP simultaneamente
+    e selectolax para parsing HTML rápido.
+    """
 
     def __init__(self):
-        self.url_personagem_base = "https://harrypotter.fandom.com"
-        self.url_livros = [
-            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_Pedra_Filosofal",
-            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_C%C3%A2mara_Secreta",
-            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_o_Prisioneiro_de_Azkaban",
-            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_o_C%C3%A1lice_de_Fogo",
-            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_Ordem_da_F%C3%AAnix",
-            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_o_Enigma_do_Pr%C3%ADncipe",
-            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_as_Rel%C3%ADquias_da_Morte",
-        ]
+        """Inicializa o scraper assíncrono."""
+        super().__init__()
+        self.setup_logger()
         self.verified_characters = []
-        self.cache = {}
-        self.list_of_dicts = []
 
     async def fetch(self, session: aiohttp.ClientSession, url: str) -> str:
-        """Fetch URL content asynchronously with caching."""
+        """Busca conteúdo de URL com cache.
+
+        Args:
+            session: Sessão aiohttp
+            url: URL para buscar
+
+        Returns:
+            Conteúdo HTML da página
+        """
         if url in self.cache:
             return self.cache[url]
 
@@ -48,13 +42,23 @@ class WikiCaller:
             self.cache[url] = text
             return text
 
-    async def get_book_info(self, session: aiohttp.ClientSession, url: str) -> Set[str]:
-        """Fetch character links from a book page."""
+    async def get_book_info(self, session: aiohttp.ClientSession, url: str) -> set[str]:
+        """Extrai links de personagens de uma página de livro.
+
+        Args:
+            session: Sessão aiohttp
+            url: Link da página do livro
+
+        Returns:
+            Conjunto com URLs completas dos personagens
+        """
         html = await self.fetch(session, url)
         soup = HTMLParser(html)
-        links: Set[str] = set()
+        links = set()
 
-        for a in soup.css("div.mw-parser-output > p > a"):
+        # Busca todos os links dentro de parágrafos
+        all_links = soup.css("div.mw-parser-output > p > a")
+        for a in all_links:
             href = a.attributes.get("href") if hasattr(a, "attributes") else None
 
             if href and href.startswith("/"):
@@ -64,46 +68,82 @@ class WikiCaller:
 
     async def verify_href(
         self, session: aiohttp.ClientSession, href: str
-    ) -> Optional[str]:
-        """Check if the character page contains relevant information."""
+    ) -> str | None:
+        """Verifica se um link é de personagem válido.
+
+        Um personagem é válido se tem banner de nascimento OU informações biográficas.
+
+        Args:
+            session: Sessão aiohttp
+            href: URL para verificar
+
+        Returns:
+            A própria URL se for personagem válido, None caso contrário
+        """
         html = await self.fetch(session, href)
         soup = HTMLParser(html)
-        return (
-            href
-            if self.have_banner(soup) or self.have_informacoes_bibliograficas(soup)
-            else None
-        )
+
+        # Verifica se tem banner OU informações biográficas
+        if self.have_banner(soup):
+            return href
+
+        if self.have_informacoes_bibliograficas(soup):
+            return href
+
+        return None
 
     def have_banner(self, soup: HTMLParser) -> bool:
-        """Check if the page has a banner."""
-        return "Nascimento" in {
-            c.text() for c in soup.css("h3.pi-data-label.pi-secondary-font")
-        }
+        """Verifica se o personagem tem banner de nascimento.
+
+        Args:
+            soup: Objeto HTMLParser com HTML da página
+
+        Returns:
+            True se tem banner de "Nascimento"
+        """
+        labels = soup.css("h3.pi-data-label.pi-secondary-font")
+
+        for label in labels:
+            if label.text() == "Nascimento":
+                return True
+
+        return False
 
     def have_informacoes_bibliograficas(self, soup: HTMLParser) -> bool:
-        """Check if the page has bibliographic information."""
+        """Verifica se tem seção de informações biográficas.
+
+        Args:
+            soup: Objeto HTMLParser com HTML da página
+
+        Returns:
+            True se tem seção "Informações biográficas"
+        """
         css_selector = (
             "h2.pi-item.pi-header.pi-secondary-font."
             "pi-item-spacing.pi-secondary-background > center"
         )
-        return "Informações biográficas" in {
-            c.text() for c in soup.css(css_selector)
-        }
+        headers = soup.css(css_selector)
 
-    def remove_accents(self, text):
-        """Get the text without accents. ç -> c, á -> a, etc."""
-        return "".join(
-            char
-            for char in unicodedata.normalize("NFD", text)
-            if unicodedata.category(char) != "Mn"
-        )
+        for header in headers:
+            if header.text() == "Informações biográficas":
+                return True
+
+        return False
 
     async def get_character_info(
         self, session: aiohttp.ClientSession, url: str
     ) -> dict[str, str | list[str]]:
-        """Fetch character information from a character page."""
+        """Extrai informações de um personagem.
 
-        if self.cache.get(url):
+        Args:
+            session: Sessão aiohttp
+            url: Link da página do personagem
+
+        Returns:
+            Dicionário com informações do personagem
+        """
+        # Busca HTML (pode estar em cache)
+        if url in self.cache:
             html = self.cache[url]
         else:
             html = await self.fetch(session, url)
@@ -112,51 +152,88 @@ class WikiCaller:
 
         soup = HTMLParser(html)
 
+        # Extrai o nome do personagem
         nome = soup.css_first(
             "h2.pi-item.pi-item-spacing.pi-title.pi-secondary-background"
         ).text(strip=True)
 
-        columns = [
-            self.remove_accents(c.text(strip=True))
-            for c in soup.css("h3.pi-data-label.pi-secondary-font")
-        ]
+        # Extrai os nomes das colunas sem acentos
+        columns = []
+        for col in soup.css("h3.pi-data-label.pi-secondary-font"):
+            name_without_accents = self.remove_accents(col.text(strip=True))
+            columns.append(name_without_accents)
 
-        infos = [
-            (
-                [li.text(strip=True) for li in el.css("li")]
-                if el.css("li")
-                else [el.text()]
-            )
-            for el in soup.css("div.pi-data-value.pi-font")
-        ]
+        # Extrai os valores de cada campo
+        infos = []
+        for el in soup.css("div.pi-data-value.pi-font"):
+            # Se tem lista (múltiplos <li>), converte para lista
+            list_items = el.css("li")
+            if list_items:
+                item_texts = []
+                for li in list_items:
+                    item_texts.append(li.text(strip=True))
+                infos.append(item_texts)
+            else:
+                infos.append([el.text()])
 
-        data: dict[str, Union[str, list]] = {
-            column: info for column, info in zip(columns, infos)
-        }
+        # Monta dicionário com pares coluna:valor
+        data = {}
+        for column, info in zip(columns, infos):
+            data[column] = info
+
         data["Nome"] = nome
         data["url"] = url
 
         return data
 
     async def get_book_data(self):
-        """Collect character links."""
+        """Coleta e verifica links de personagens de todos os livros."""
         logger.info("Fetching character links...")
+
         async with aiohttp.ClientSession() as session:
+            # Busca links de todos os livros em paralelo
             book_links = await async_tqdm.gather(
                 *[self.get_book_info(session, url) for url in self.url_livros],
                 desc="Fetching links from books...",
             )
-            character_links = chain.from_iterable(book_links)
+
+            # Junta todos os links removendo duplicatas
+            all_links = []
+            for links in book_links:
+                all_links.extend(links)
+
+            # Remove duplicatas mantendo ordem
+            unique_links = []
+            seen = set()
+            for link in all_links:
+                if link not in seen:
+                    seen.add(link)
+                    unique_links.append(link)
 
             logger.info("Verifying character links...")
+
+            # Verifica todos os links em paralelo
             verified = await async_tqdm.gather(
-                *[self.verify_href(session, href) for href in character_links],
+                *[self.verify_href(session, href) for href in unique_links],
                 desc="Verifying characters links...",
             )
-            self.verified_characters = dict.fromkeys(list(filter(None, verified)))
+
+            # Remove valores None
+            verified_clean = []
+            for link in verified:
+                if link is not None:
+                    verified_clean.append(link)
+
+            # Remove duplicatas finais
+            self.verified_characters = []
+            seen = set()
+            for link in verified_clean:
+                if link not in seen:
+                    seen.add(link)
+                    self.verified_characters.append(link)
 
     async def get_char_data(self):
-        """Fetch data for all verified characters."""
+        """Extrai informações de todos os personagens verificados."""
         async with aiohttp.ClientSession() as session:
             data = await async_tqdm.gather(
                 *[
@@ -166,40 +243,16 @@ class WikiCaller:
                 desc="Fetching character data...",
             )
 
-            # remove duplicate names
-
-            self.list_of_dicts = (
-                pd.DataFrame(data)
-                .drop_duplicates(subset="Nome")
-                .query('Nome != "Joanne Rowling"')
-                .to_dict(orient="records")
-            )
-
-    def save_data_to_duckdb(self):
-        """Save the dataframe to a duckdb database."""
-
-        pipeline = dlt.pipeline(
-            pipeline_name="personagens_harry_potter",
-            dataset_name="harry_potter",
-            destination="duckdb",
-        )
-
-        load_info = pipeline.run(
-            data=self.list_of_dicts,
-            table_name="personagens",
-            write_disposition="replace",
-        )
-        logger.info(load_info)
-
-    def save_to_csv(self):
-        """Save the dataframe to a csv file."""
-        pd.DataFrame(self.list_of_dicts).to_csv("personagens.csv", index=False, sep=";")
+            # Limpa dados usando método da classe base
+            self.list_of_dicts = self.clean_character_data(data)
 
     async def run(self) -> None:
-        """Run the complete scraping pipeline.
+        """Executa o pipeline completo de scraping.
 
-        Executes all steps: get book data, get character data,
-        and save to CSV and DuckDB.
+        Passos:
+        1. Coleta e verifica links de forma assíncrona
+        2. Extrai dados de cada personagem de forma assíncrona
+        3. Salva em CSV e DuckDB
         """
         now = pend.now()
 
@@ -214,6 +267,7 @@ class WikiCaller:
 
 
 async def main():
+    """Função principal para executar o scraper assíncrono."""
     wiki = WikiCaller()
     await wiki.run()
 

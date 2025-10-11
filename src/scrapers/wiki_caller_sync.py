@@ -1,226 +1,239 @@
-import sys
+"""Scraper síncrono usando BeautifulSoup."""
 
-import dlt
-import pandas as pd
 import pendulum as pend
 import requests
 from bs4 import BeautifulSoup
 from loguru import logger
 from tqdm import tqdm
 
+from .base import BaseWikiCaller
+
 pend.set_locale("en_us")
 
-logger.remove()
 
-logger.add(
-    sys.stdout,
-    colorize=True,
-    format="<green>{time:HH:mm:ss}</green> | <level>{level}</level> | <level>{message}</level>",
-)
+class WikiCaller(BaseWikiCaller):
+    """Scraper síncrono para personagens do Wiki de Harry Potter.
 
+    Usa BeautifulSoup para parsing HTML e requests para fazer requisições HTTP.
+    É a versão mais simples e lenta, mas também a mais fácil de entender.
+    """
 
-class WikiCaller:
     def __init__(self):
-        self.url_personagem_base = "https://harrypotter.fandom.com"
-        self.url_livros = [
-            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_Pedra_Filosofal",
-            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_C%C3%A2mara_Secreta",
-            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_o_Prisioneiro_de_Azkaban",
-            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_o_C%C3%A1lice_de_Fogo",
-            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_a_Ordem_da_F%C3%AAnix",
-            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_o_Enigma_do_Pr%C3%ADncipe",
-            "https://harrypotter.fandom.com/pt-br/wiki/Harry_Potter_e_as_Rel%C3%ADquias_da_Morte",
-        ]
+        """Inicializa o scraper síncrono."""
+        super().__init__()
+        self.setup_logger()
         self.href_personagens = []
-        self.dataframes_personagem = []
-        self.list_of_dicts = []
-        self.cache = {}
         self.verified_characters = []
 
     def get_character_info(self, url: str) -> dict:
-        """Visita a página de um personagem e retorna as informações da cartão de informações
+        """Visita a página de um personagem e extrai suas informações.
 
         Args:
-            url (str): o link do site do personagem
+            url: Link da página do personagem
 
         Returns:
-            pandas.DataFrame: linha com as informações do personagem
+            Dicionário com informações do personagem
         """
-
-        response = self.cache.get(url, requests.get(url))
+        # Usa cache se disponível, senão faz requisição
+        if url in self.cache:
+            response = self.cache[url]
+        else:
+            response = requests.get(url)
+            self.cache[url] = response
 
         soup = BeautifulSoup(response.text, "html.parser")
 
+        # Extrai o nome do personagem
         nome = soup.select_one(
             "h2.pi-item.pi-item-spacing.pi-title.pi-secondary-background"
         ).text
+
+        # Extrai os nomes das colunas (ex: "Nascimento", "Espécie")
         columns = soup.select("h3.pi-data-label.pi-secondary-font")
-        column_names = [c.text for c in columns]
+        column_names = []
+        for col in columns:
+            column_names.append(col.text)
+
+        # Extrai os valores de cada campo
         infos = []
         for el in soup.select("div.pi-data-value.pi-font"):
-            # if its a list then put a comma between each element
-            if len(el.select("li")) > 0:
-                infos.append(", ".join([li.text for li in el.select("li")]))
+            # Se tem lista (múltiplos <li>), junta com vírgulas
+            list_items = el.select("li")
+            if len(list_items) > 0:
+                text_parts = []
+                for li in list_items:
+                    text_parts.append(li.text)
+                infos.append(", ".join(text_parts))
             else:
                 infos.append(el.text)
 
-        data = {col: [info] for col, info in zip(column_names, infos)}
+        # Monta dicionário com pares coluna:valor
+        data = {}
+        for col, info in zip(column_names, infos):
+            data[col] = [info]
+
         data["Nome"] = nome
         data["url"] = url
-
-        self.cache[url] = response
 
         return data
 
     def have_banner(self, soup: BeautifulSoup) -> bool:
-        """Vê se o personagem tem um banner de nascimento na página
+        """Verifica se o personagem tem banner de nascimento.
 
         Args:
-            soup (BeautifulSoup): BeautifulSoup object do HTML do personagem
+            soup: Objeto BeautifulSoup com HTML da página
 
         Returns:
-            bool: True se o personagem tem um banner de nascimento
+            True se tem banner de "Nascimento"
         """
-        return "Nascimento" in [
-            c.text for c in soup.select("h3.pi-data-label.pi-secondary-font")
-        ]
+        labels = soup.select("h3.pi-data-label.pi-secondary-font")
 
-    def have_informacoes_bibliograficas(self, soup):
-        """Ver se o personagem tem a caixa de informações biográficas
+        for label in labels:
+            if label.text == "Nascimento":
+                return True
+
+        return False
+
+    def have_informacoes_bibliograficas(self, soup: BeautifulSoup) -> bool:
+        """Verifica se tem seção de informações biográficas.
 
         Args:
-            href (str): link do personagem
+            soup: Objeto BeautifulSoup com HTML da página
 
         Returns:
-            bool: True se o personagem tem a caixa de informações biográficas
+            True se tem seção "Informações biográficas"
         """
-
         css_selector = (
             "h2.pi-item.pi-header.pi-secondary-font."
             "pi-item-spacing.pi-secondary-background > center"
         )
-        return "Informações biográficas" in [
-            c.text for c in soup.select(css_selector)
-        ]
+        headers = soup.select(css_selector)
 
-    def verify_href(self, href):
-        response = self.cache.get(href, requests.get(href))
-        soup = BeautifulSoup(response.text, "html.parser")
+        for header in headers:
+            if header.text == "Informações biográficas":
+                return True
 
-        self.cache[href] = response
-        return (
-            href
-            if self.have_banner(soup) or self.have_informacoes_bibliograficas(soup)
-            else None
-        )
+        return False
 
-    def get_book_info(self, url: str) -> list[str]:
-        """Visita a página de um livro e retorna informações para cada link <a>.
+    def verify_href(self, href: str) -> str | None:
+        """Verifica se um link é de personagem válido.
 
-        Busca links dentro de parágrafos <p> na página.
+        Um personagem é válido se tem banner de nascimento OU informações biográficas.
 
         Args:
-            url (str): link da pagina do livro
+            href: URL para verificar
 
         Returns:
-            list[str]: lista com os links dos personagens que tem um banner
-                de nascimento ou informações bibliográficas
+            A própria URL se for personagem válido, None caso contrário
+        """
+        # Usa cache se disponível
+        if href in self.cache:
+            response = self.cache[href]
+        else:
+            response = requests.get(href)
+            self.cache[href] = response
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # Verifica se tem banner OU informações biográficas
+        if self.have_banner(soup):
+            return href
+
+        if self.have_informacoes_bibliograficas(soup):
+            return href
+
+        return None
+
+    def get_book_info(self, url: str) -> list[str]:
+        """Extrai links de personagens de uma página de livro.
+
+        Busca todos os links <a> dentro de parágrafos <p> na página.
+
+        Args:
+            url: Link da página do livro
+
+        Returns:
+            Lista com URLs completas dos personagens
         """
         response = requests.get(url)
         soup = BeautifulSoup(response.text, "html.parser")
 
         links_personagens = set()
 
-        for a in tqdm(
-            soup.select("div.mw-parser-output > p > a"),
-            desc=f"Getting book info for {url}",
-        ):
-            links_personagens.add(a["href"])
+        # Busca todos os links dentro de parágrafos
+        all_links = soup.select("div.mw-parser-output > p > a")
+        for a in tqdm(all_links, desc=f"Getting book info for {url}"):
+            href = a.get("href")
+            if href:
+                links_personagens.add(href)
 
-        return (
-            self.url_personagem_base + link if link.startswith("/") else link
-            for link in links_personagens
-        )
+        # Converte links relativos em absolutos
+        complete_links = []
+        for link in links_personagens:
+            if link.startswith("/"):
+                complete_links.append(self.url_personagem_base + link)
+            else:
+                complete_links.append(link)
+
+        return complete_links
 
     def get_data(self) -> None:
-        """Salva os links dos personagens com banner ou informações.
-
-        Busca personagens que tem um banner de nascimento ou informações
-        bibliográficas dentre todos os livros.
-        """
+        """Coleta links de personagens de todos os livros."""
+        all_links = []
 
         for livro in tqdm(self.url_livros, desc="Getting book info for all books"):
-            self.href_personagens += self.get_book_info(livro)
+            book_links = self.get_book_info(livro)
+            all_links.extend(book_links)
+
+        self.href_personagens = all_links
 
     def verify_links(self):
+        """Verifica quais links são de personagens válidos."""
+        verified = []
 
-        self.verified_characters = (
-            self.verify_href(href)
-            for href in tqdm(self.href_personagens, desc="Verifying character links...")
-        )
+        for href in tqdm(self.href_personagens, desc="Verifying character links..."):
+            result = self.verify_href(href)
+            if result is not None:
+                verified.append(result)
 
-        self.verified_characters = list(filter(None, self.verified_characters))
+        self.verified_characters = verified
 
     def get_char_data(self) -> None:
-        """
-        Pega as informações de cada personagem e salva em um DataFrame
-        """
+        """Extrai informações de todos os personagens verificados."""
+        all_character_data = []
+
         for link_personagem in tqdm(
             self.verified_characters, desc="Getting character info..."
         ):
             try:
-                self.list_of_dicts.append(self.get_character_info(link_personagem))
-
+                char_info = self.get_character_info(link_personagem)
+                all_character_data.append(char_info)
             except Exception as e:
-                print("error", e, link_personagem)
+                logger.error(
+                    f"Erro ao extrair dados de {link_personagem}: {e}. "
+                    f"Verifique se a estrutura HTML da página mudou."
+                )
                 continue
 
-        self.list_of_dicts = (
-            pd.DataFrame(self.list_of_dicts)
-            .query('Nome != "Joanne Rowling"')
-            .drop_duplicates(subset="Nome")
-            .to_dict(orient="records")
-        )
+        # Limpa dados usando método da classe base
+        self.list_of_dicts = self.clean_character_data(all_character_data)
         logger.info("Got all character info")
 
-    def save_dataframe(self):
-        """Salva o DataFrame em um arquivo csv.
-
-        Remove duplicatas e a autora Joanne Rowling (que não é um personagem).
-        """
-        (
-            pd.DataFrame(self.list_of_dicts).to_csv(
-                "personagens.csv", index=False, sep=";"
-            )
-        )
-
-    def save_data_to_duckdb(self):
-        pipeline = dlt.pipeline(
-            pipeline_name="personagens_harry_potter",
-            dataset_name="harry_potter",
-            destination="duckdb",
-        )
-
-        load_info = pipeline.run(
-            data=self.list_of_dicts,
-            table_name="personagens",
-            write_disposition="replace",
-        )
-
-        logger.info(load_info)
-
     def run(self) -> None:
-        """Run the complete scraping pipeline.
+        """Executa o pipeline completo de scraping.
 
-        Executes all steps: get data, verify links, get character data,
-        and save to CSV and DuckDB.
+        Passos:
+        1. Coleta links dos livros
+        2. Verifica quais são personagens válidos
+        3. Extrai dados de cada personagem
+        4. Salva em CSV e DuckDB
         """
         now = pend.now()
 
         self.get_data()
         self.verify_links()
         self.get_char_data()
-        self.save_dataframe()
+        self.save_to_csv()
         self.save_data_to_duckdb()
 
         logger.info(f"Data collected and saved in {(pend.now() - now).in_words()}")
