@@ -128,3 +128,9 @@ dmypy.json
 # Pyre type checker
 .pyre/
 .Rproj.user
+
+# Project-specific
+data/*.csv
+data/*.duckdb
+data/*.duckdb.wal
+!data/.gitkeep

@@ -4,48 +4,84 @@ Web Scraping de personagens da série Harry Potter.
 
 ## Como foi feito?
 
-Utilizando a biblioteca BeautifulSoup, foi feito um web scraping no site [Harry Potter Wiki](https://harrypotter.fandom.com/pt-br/wiki/P%C3%A1gina_Principal) para obter os nomes dos personagens da série.
+Utilizando bibliotecas como BeautifulSoup e selectolax, foi feito um web scraping no site [Harry Potter Wiki](https://harrypotter.fandom.com/pt-br/wiki/P%C3%A1gina_Principal) para obter os nomes dos personagens da série.
 
 Foi criado um script que faz a requisição para cada página dos 7 livros. Cada página contém um resumo dos acontecimentos e dos personagens que aparecem em cada cena/capítulo.
 
-O script foi feito para obter o nome do personagem e o hyperlink para a página do personagem. Com esses dados, é possível fazer um web scraping na página do personagem para obter mais informações sobre ele.
+O script obtém o nome do personagem e o hyperlink para a página do personagem. Com esses dados, é possível fazer um web scraping na página do personagem para obter mais informações sobre ele (data de nascimento, espécie, gênero, etc.).
+
+## Estrutura do Projeto
+
+```
+personagens_harry_potter/
+├── src/
+│   └── scrapers/           # Módulos de scraping
+│       ├── wiki_caller_sync.py              # Versão sequencial (BeautifulSoup)
+│       ├── wiki_caller_multiprocessing.py   # Versão paralela (pathos)
+│       └── wiki_caller_async.py             # Versão assíncrona (aiohttp)
+├── tests/                  # Testes unitários
+├── data/                   # Dados de saída (CSV e DuckDB)
+└── pyproject.toml          # Dependências e configurações
+```
 
 ## Como executar?
 
-- Clone o repositório
-- Instale as dependências
-- Execute o script
+### Instalação
+
+Clone o repositório e instale as dependências usando `uv`:
 
 ```bash
 git clone https://github.com/levyvix/personagens_harry_potter.git
 cd personagens_harry_potter
-python -m pip install -r requirements.txt
-python get_data.py
+uv sync
 ```
 
-Vai ser criado um arquivo chamado `personagens.csv` com os dados obtidos. E também um arquivo `personagens_harry_potter.duckdb` com o mesmo nome, que pode ser utilizado para fazer consultas SQL usando a biblioteca DuckDB.
+### Executando o Scraper
 
-Lembre-se que os dados ainda precisam ser limpos e tratados para serem utilizados em um projeto.
-
-### Versão em paralelo (6 segundos)
-
-Para obter os dados mais rapidamente, foi criado um script que utiliza multiprocessamento para fazer as requisições de forma paralela.
-
-> ⚠️ **CUIDADO:** Este script utiliza todos os núcleos do seu processador. Se você tiver um processador com muitos núcleos, pode ser que o site bloqueie o seu IP por fazer muitas requisições em um curto espaço de tempo.
-
-Para executar o script com multiprocessamento, execute o seguinte comando:
-
-#### Multiprocessamento
+#### Opção 1: Interface CLI (recomendado)
 
 ```bash
-python get_data_multiprocessing.py
+# Modo padrão (multiprocessamento - ~6 segundos)
+uv run python -m src.scrapers
+
+# Modo sequencial (mais lento, mas mais seguro)
+uv run python -m src.scrapers --mode sync
+
+# Modo assíncrono
+uv run python -m src.scrapers --mode async
+
+# Especificar diretório de saída
+uv run python -m src.scrapers --output-dir ./meus_dados
 ```
 
-#### Assíncrono
+#### Opção 2: Script de conveniência
 
 ```bash
-python get_data_async.py
+uv run python run_scraper.py --mode multiprocessing
 ```
+
+#### Opção 3: Executar módulos diretamente
+
+```bash
+# Versão sequencial (BeautifulSoup)
+uv run python src/scrapers/wiki_caller_sync.py
+
+# Versão com multiprocessamento (~6 segundos)
+uv run python src/scrapers/wiki_caller_multiprocessing.py
+
+# Versão assíncrona
+uv run python src/scrapers/wiki_caller_async.py
+```
+
+> ⚠️ **CUIDADO:** A versão com multiprocessamento utiliza todos os núcleos do seu processador. Se você tiver um processador com muitos núcleos, pode ser que o site bloqueie o seu IP por fazer muitas requisições em um curto espaço de tempo.
+
+### Arquivos de Saída
+
+Os dados são salvos no diretório `data/`:
+- `personagens.csv` - Arquivo CSV com os dados dos personagens (separado por ponto-e-vírgula)
+- `personagens_harry_potter.duckdb` - Banco de dados DuckDB com os mesmos dados
+
+Lembre-se que os dados ainda precisam ser limpos e tratados para serem utilizados em um projeto de produção.
 
 ## Docker
 
@@ -57,8 +93,34 @@ Para construir a imagem, execute o seguinte comando:
 docker build -t personagens_harry_potter .
 ```
 
-Para executar o script dentro do container, execute o seguinte comando:
+Para executar o script dentro do container (com volume para salvar os dados):
 
 ```bash
-docker run -it --rm personagens_harry_potter
+docker run -it --rm -v $(pwd)/data:/app/data personagens_harry_potter
 ```
+
+Para executar com um modo específico:
+
+```bash
+docker run -it --rm personagens_harry_potter uv run python -m src.scrapers --mode async
+```
+
+## Testes
+
+Execute os testes com pytest:
+
+```bash
+uv run pytest
+```
+
+## Tecnologias Utilizadas
+
+- **Python 3.11+**
+- **BeautifulSoup4** - Parsing HTML (versão sequencial)
+- **selectolax** - Parsing HTML rápido (versões paralela e assíncrona)
+- **pathos** - Multiprocessamento
+- **aiohttp** - Requisições HTTP assíncronas
+- **DuckDB** - Banco de dados analítico
+- **dlt** - Pipeline de dados para DuckDB
+- **pandas** - Manipulação de dados
+- **uv** - Gerenciador de pacotes Python

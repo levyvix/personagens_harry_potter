@@ -82,11 +82,12 @@ class WikiCaller:
 
     def have_informacoes_bibliograficas(self, soup: HTMLParser) -> bool:
         """Check if the page has bibliographic information."""
+        css_selector = (
+            "h2.pi-item.pi-header.pi-secondary-font."
+            "pi-item-spacing.pi-secondary-background > center"
+        )
         return "Informações biográficas" in {
-            c.text()
-            for c in soup.css(
-                "h2.pi-item.pi-header.pi-secondary-font.pi-item-spacing.pi-secondary-background > center"
-            )
+            c.text() for c in soup.css(css_selector)
         }
 
     def remove_accents(self, text):
@@ -194,18 +195,27 @@ class WikiCaller:
         """Save the dataframe to a csv file."""
         pd.DataFrame(self.list_of_dicts).to_csv("personagens.csv", index=False, sep=";")
 
+    async def run(self) -> None:
+        """Run the complete scraping pipeline.
+
+        Executes all steps: get book data, get character data,
+        and save to CSV and DuckDB.
+        """
+        now = pend.now()
+
+        await self.get_book_data()
+        await self.get_char_data()
+        self.save_data_to_duckdb()
+        self.save_to_csv()
+
+        logger.info(
+            f"Data collected and saved in {(pend.now() - now).in_words(locale='en_us')}"
+        )
+
 
 async def main():
-    now = pend.now()
     wiki = WikiCaller()
-    await wiki.get_book_data()
-    await wiki.get_char_data()
-    wiki.save_data_to_duckdb()
-    wiki.save_to_csv()
-
-    logger.info(
-        f"Data collected and saved in {(pend.now() - now).in_words(locale='en_us')}"
-    )
+    await wiki.run()
 
 
 if __name__ == "__main__":

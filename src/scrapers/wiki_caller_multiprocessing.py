@@ -43,14 +43,16 @@ class WikiCaller:
         self.list_of_dicts: list[dict] = []
 
     def get_book_info(self, url: str) -> list[str]:
-        """Visita a página de um livro e retorna as informações da cartão de informações para cada link <a> que estiver
-        na página, dentro de um parágrafo <p>
+        """Visita a página de um livro e retorna informações para cada link <a>.
+
+        Busca links dentro de parágrafos <p> na página.
 
         Args:
                 url (str): link da pagina do livro
 
         Returns:
-                list[str]: lista com os links dos personagens que tem um banner de nascimento ou informações bibliográficas
+                list[str]: lista com os links dos personagens que tem um banner
+                    de nascimento ou informações bibliográficas
         """
         response = self.session.get(url)
         soup = HTMLParser(response.text)
@@ -69,15 +71,17 @@ class WikiCaller:
         return list(links)
 
     def verify_href(self, href: str) -> Optional[str]:
-        """
-        Verifica um `href` informado, fazendo uma requisição GET e armazenando o resultado na cache.
-        Se o personagem tem um banner de nascimento ou informações bibliográficas, o `href` é retornado
+        """Verifica um `href` com requisição GET e cache.
+
+        Se o personagem tem um banner de nascimento ou informações
+        bibliográficas, o `href` é retornado.
 
         Args:
             href (str): The URL to verify.
 
         Returns:
-            Optional[str]: The `href` if the character has a banner or bibliographic info, otherwise `None`.
+            Optional[str]: The `href` if the character has a banner or
+                bibliographic info, otherwise `None`.
         """
         response: requests.Response = self.cache.get(href, self.session.get(href))
 
@@ -127,7 +131,9 @@ class WikiCaller:
             for el in soup.css("div.pi-data-value.pi-font")
         ]
 
-        data: dict[str, Union[str, list]] = {column: info for column, info in zip(column_names, infos)}
+        data: dict[str, Union[str, list]] = {
+            column: info for column, info in zip(column_names, infos)
+        }
         data["Nome"] = nome
         data["url"] = url
 
@@ -161,16 +167,19 @@ class WikiCaller:
 
         soup = HTMLParser(response.text)
 
+        css_selector = (
+            "h2.pi-item.pi-header.pi-secondary-font."
+            "pi-item-spacing.pi-secondary-background > center"
+        )
         return "Informações biográficas" in {
-            c.text()
-            for c in soup.css(
-                "h2.pi-item.pi-header.pi-secondary-font.pi-item-spacing.pi-secondary-background > center"
-            )
+            c.text() for c in soup.css(css_selector)
         }
 
     def get_data(self) -> None:
-        """
-        Salva os links dos personagens que tem um banner de nascimento ou informações bibliográficas dentre todos os livros.
+        """Salva os links dos personagens com banner ou informações.
+
+        Busca personagens que tem um banner de nascimento ou informações
+        bibliográficas dentre todos os livros.
         """
 
         logger.info("Getting book info...")
@@ -227,15 +236,22 @@ class WikiCaller:
             write_disposition="replace",
         )
 
+    def run(self) -> None:
+        """Run the complete scraping pipeline.
+
+        Executes all steps: get data, get character data,
+        and save to CSV and DuckDB.
+        """
+        now = pend.now()
+
+        self.get_data()
+        self.get_char_data()
+        self.save_to_csv()
+        self.save_data_to_duckdb()
+
+        logger.info(f"Data collected and saved in {(pend.now() - now).in_words()}")
+
 
 if __name__ == "__main__":
-    now = pend.now()
-
     wiki = WikiCaller()
-    wiki.get_data()
-    wiki.get_char_data()
-    wiki.save_to_csv()
-    wiki.save_data_to_duckdb()
-
-    # human readable time
-    logger.info(f"Data collected and saved in {(pend.now() - now).in_words()}")
+    wiki.run()

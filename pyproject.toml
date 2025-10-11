@@ -1,0 +1,40 @@
+[project]
+name = "personagens-harry-potter"
+version = "0.1.0"
+description = "Web scraper for Harry Potter character data from Portuguese wiki"
+requires-python = ">=3.11"
+readme = "README.md"
+license = {file = "LICENSE"}
+dependencies = [
+    "aiohttp>=3.13.0",
+    "beautifulsoup4>=4.14.2",
+    "dlt>=1.17.1",
+    "duckdb>=1.4.1",
+    "loguru==0.7.2",
+    "pandas>=2.3.3",
+    "pathos>=0.3.4",
+    "pendulum==3.0.0",
+    "requests>=2.32.5",
+    "selectolax>=0.4.0",
+    "tqdm>=4.67.1",
+]
+
+[project.scripts]
+scrape-hp = "src.scrapers.__main__:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+]

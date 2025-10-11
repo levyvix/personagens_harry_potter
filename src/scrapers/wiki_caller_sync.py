@@ -72,18 +72,15 @@ class WikiCaller:
 
         return data
 
-    def have_banner(self, response: requests.Response) -> bool:
+    def have_banner(self, soup: BeautifulSoup) -> bool:
         """Vê se o personagem tem um banner de nascimento na página
 
         Args:
-            response (str): link do personagem
+            soup (BeautifulSoup): BeautifulSoup object do HTML do personagem
 
         Returns:
             bool: True se o personagem tem um banner de nascimento
         """
-
-        soup = BeautifulSoup(response.text, "html.parser")
-
         return "Nascimento" in [
             c.text for c in soup.select("h3.pi-data-label.pi-secondary-font")
         ]
@@ -98,11 +95,12 @@ class WikiCaller:
             bool: True se o personagem tem a caixa de informações biográficas
         """
 
+        css_selector = (
+            "h2.pi-item.pi-header.pi-secondary-font."
+            "pi-item-spacing.pi-secondary-background > center"
+        )
         return "Informações biográficas" in [
-            c.text
-            for c in soup.select(
-                "h2.pi-item.pi-header.pi-secondary-font.pi-item-spacing.pi-secondary-background > center"
-            )
+            c.text for c in soup.select(css_selector)
         ]
 
     def verify_href(self, href):
@@ -117,14 +115,16 @@ class WikiCaller:
         )
 
     def get_book_info(self, url: str) -> list[str]:
-        """Visita a página de um livro e retorna as informações da cartão de informações para cada link <a> que estiver na página,
-            dentro de um parágrafo <p>
+        """Visita a página de um livro e retorna informações para cada link <a>.
+
+        Busca links dentro de parágrafos <p> na página.
 
         Args:
             url (str): link da pagina do livro
 
         Returns:
-            list[str]: lista com os links dos personagens que tem um banner de nascimento ou informações bibliográficas
+            list[str]: lista com os links dos personagens que tem um banner
+                de nascimento ou informações bibliográficas
         """
         response = requests.get(url)
         soup = BeautifulSoup(response.text, "html.parser")
@@ -143,8 +143,10 @@ class WikiCaller:
         )
 
     def get_data(self) -> None:
-        """
-        Salva os links dos personagens que tem um banner de nascimento ou informações bibliográficas dentre todos os livros.
+        """Salva os links dos personagens com banner ou informações.
+
+        Busca personagens que tem um banner de nascimento ou informações
+        bibliográficas dentre todos os livros.
         """
 
         for livro in tqdm(self.url_livros, desc="Getting book info for all books"):
@@ -182,8 +184,9 @@ class WikiCaller:
         logger.info("Got all character info")
 
     def save_dataframe(self):
-        """
-        Salva o DataFrame em um arquivo csv, removendo duplicatas e a autora Joanne Rowling (que não é um personagem)
+        """Salva o DataFrame em um arquivo csv.
+
+        Remove duplicatas e a autora Joanne Rowling (que não é um personagem).
         """
         (
             pd.DataFrame(self.list_of_dicts).to_csv(
@@ -206,16 +209,23 @@ class WikiCaller:
 
         logger.info(load_info)
 
+    def run(self) -> None:
+        """Run the complete scraping pipeline.
+
+        Executes all steps: get data, verify links, get character data,
+        and save to CSV and DuckDB.
+        """
+        now = pend.now()
+
+        self.get_data()
+        self.verify_links()
+        self.get_char_data()
+        self.save_dataframe()
+        self.save_data_to_duckdb()
+
+        logger.info(f"Data collected and saved in {(pend.now() - now).in_words()}")
+
 
 if __name__ == "__main__":
-    now = pend.now()
-
     wiki = WikiCaller()
-    wiki.get_data()
-    wiki.verify_links()
-    wiki.get_char_data()
-    wiki.save_dataframe()
-    wiki.save_data_to_duckdb()
-
-    # human readable time
-    logger.info(f"Data collected and saved in {(pend.now() - now).in_words()}")
+    wiki.run()
