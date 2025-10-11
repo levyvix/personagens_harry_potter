@@ -16,6 +16,7 @@ O script obtém o nome do personagem e o hyperlink para a página do personagem.
 personagens_harry_potter/
 ├── src/
 │   └── scrapers/           # Módulos de scraping
+│       ├── base.py                          # Classe base com código compartilhado
 │       ├── wiki_caller_sync.py              # Versão sequencial (BeautifulSoup)
 │       ├── wiki_caller_multiprocessing.py   # Versão paralela (pathos)
 │       └── wiki_caller_async.py             # Versão assíncrona (aiohttp)
@@ -113,6 +114,32 @@ Execute os testes com pytest:
 uv run pytest
 ```
 
+## Arquitetura
+
+### Classe Base (`BaseWikiCaller`)
+
+Todas as três implementações herdam de uma classe base que centraliza:
+- URLs dos 7 livros da série Harry Potter
+- Configuração de logging
+- Remoção de acentos para normalização de dados
+- Limpeza de dados (remoção de duplicatas e filtros)
+- Salvamento em CSV e DuckDB
+
+### Implementações Específicas
+
+Cada implementação (`WikiCallerSync`, `WikiCallerMultiprocessing`, `WikiCallerAsync`) foca apenas em sua estratégia de execução:
+- **Sync**: Requisições sequenciais simples e confiáveis
+- **Multiprocessing**: Processamento paralelo para máxima velocidade (~6 segundos)
+- **Async**: Requisições assíncronas com `aiohttp` e `asyncio`
+
+### Fluxo de Dados
+
+1. **Coleta de Links**: Extrai links de personagens das páginas dos 7 livros
+2. **Verificação**: Filtra apenas personagens com informações biográficas
+3. **Extração de Dados**: Coleta dados detalhados de cada personagem verificado
+4. **Limpeza**: Remove duplicatas e entradas inválidas (ex: autora)
+5. **Salvamento**: Exporta para CSV e carrega no DuckDB
+
 ## Tecnologias Utilizadas
 
 - **Python 3.11+**
@@ -124,3 +151,4 @@ uv run pytest
 - **dlt** - Pipeline de dados para DuckDB
 - **pandas** - Manipulação de dados
 - **uv** - Gerenciador de pacotes Python
+- **pytest** - Framework de testes
