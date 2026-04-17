@@ -1,5 +1,9 @@
 # Personagens Harry Potter
 
+> [!WARNING]
+> **Archived project (2026-04-17).**  
+> This repository is no longer maintained.  
+> Live scraping is currently blocked by Cloudflare protection from this environment.
 
 Scraper simples em Python para coletar dados de personagens do Harry Potter Wiki (pt-br) e salvar em CSV e DuckDB.
 
