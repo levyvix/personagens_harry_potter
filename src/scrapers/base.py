@@ -42,9 +42,7 @@ class BaseWikiCaller(ABC):
             sys.stdout,
             colorize=True,
             format=(
-                "<green>{time:HH:mm:ss}</green> | "
-                "<level>{level}</level> | "
-                "<level>{message}</level>"
+                "<green>{time:HH:mm:ss}</green> | <level>{level}</level> | <level>{message}</level>"
             ),
         )
 
@@ -106,7 +104,7 @@ class BaseWikiCaller(ABC):
 
         df = pd.DataFrame(self.list_of_dicts)
         df.to_csv(output_path, index=False, sep=";")
-        logger.info(f"Dados salvos em {output_path}")
+        logger.info(f"Dados salvos em {output_path}. Separador ';' ")
 
     def save_data_to_duckdb(self, db_name: str = "personagens_harry_potter.duckdb"):
         """Salva os dados em banco DuckDB.

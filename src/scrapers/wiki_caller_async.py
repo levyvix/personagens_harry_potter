@@ -1,6 +1,7 @@
 """Scraper assíncrono usando aiohttp e asyncio."""
 
 import asyncio
+from typing_extensions import override
 
 import aiohttp
 import pendulum as pend
@@ -66,9 +67,7 @@ class WikiCaller(BaseWikiCaller):
 
         return links
 
-    async def verify_href(
-        self, session: aiohttp.ClientSession, href: str
-    ) -> str | None:
+    async def verify_href(self, session: aiohttp.ClientSession, href: str) -> str | None:
         """Verifica se um link é de personagem válido.
 
         Um personagem é válido se tem banner de nascimento OU informações biográficas.
@@ -153,9 +152,9 @@ class WikiCaller(BaseWikiCaller):
         soup = HTMLParser(html)
 
         # Extrai o nome do personagem
-        nome = soup.css_first(
-            "h2.pi-item.pi-item-spacing.pi-title.pi-secondary-background"
-        ).text(strip=True)
+        nome = soup.css_first("h2.pi-item.pi-item-spacing.pi-title.pi-secondary-background").text(
+            strip=True
+        )
 
         # Extrai os nomes das colunas sem acentos
         columns = []
@@ -236,10 +235,7 @@ class WikiCaller(BaseWikiCaller):
         """Extrai informações de todos os personagens verificados."""
         async with aiohttp.ClientSession() as session:
             data = await async_tqdm.gather(
-                *[
-                    self.get_character_info(session, url)
-                    for url in self.verified_characters
-                ],
+                *[self.get_character_info(session, url) for url in self.verified_characters],
                 desc="Fetching character data...",
             )
 
@@ -261,9 +257,7 @@ class WikiCaller(BaseWikiCaller):
         self.save_data_to_duckdb()
         self.save_to_csv()
 
-        logger.info(
-            f"Data collected and saved in {(pend.now() - now).in_words(locale='en_us')}"
-        )
+        logger.info(f"Data collected and saved in {(pend.now() - now).in_words(locale='en_us')}")
 
 
 async def main():
